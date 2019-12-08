@@ -1,7 +1,7 @@
 /*
  *   MediaOutputBase class for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -29,6 +29,8 @@
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include "MediaOutputBase.h"
 #include "common.h"
@@ -129,11 +131,24 @@ int MediaOutputBase::IsPlaying(void)
 
 	pthread_mutex_lock(&m_outputLock);
 
-	if (m_childPID > 0)
-		result = 1;
+    if (m_childPID > 0) {
+        result = 1;
+    }
 
 	pthread_mutex_unlock(&m_outputLock);
 
 	return result;
+}
+
+bool MediaOutputBase::isChildRunning() {
+    if (m_childPID > 0) {
+        int status = 0;
+        if (waitpid(m_childPID, &status, WNOHANG)) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+    return false;
 }
 

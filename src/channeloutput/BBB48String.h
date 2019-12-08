@@ -1,7 +1,7 @@
 /*
- *   BeagleBone Black PRU 48-string handler for Falcon Pi Player (FPP)
+ *   BeagleBone Black PRU 48-string handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -29,33 +29,59 @@
 #include <string>
 #include <vector>
 
-#include "ledscape.h"
-
+#include "util/BBBPruUtils.h"
 #include "ChannelOutputBase.h"
 #include "PixelString.h"
 
+#define MAX_WS2811_TIMINGS 128
+
+// structure of the data at the start of the PRU ram
+// that the pru program expects to see
+typedef struct {
+    // in the DDR shared with the PRU
+    uintptr_t address_dma;
+    
+    // write 1 to start, 0xFF to abort. will be cleared when started
+    volatile unsigned command;
+    volatile unsigned response;
+    
+    uint16_t timings[MAX_WS2811_TIMINGS];
+} __attribute__((__packed__)) BBB48StringData;
+
 class BBB48StringOutput : public ChannelOutputBase {
   public:
-	BBB48StringOutput(unsigned int startChannel, unsigned int channelCount);
-	~BBB48StringOutput();
+    BBB48StringOutput(unsigned int startChannel, unsigned int channelCount);
+    virtual ~BBB48StringOutput();
 
-	int Init(Json::Value config);
-	int Close(void);
+    virtual int Init(Json::Value config) override;
+    virtual int Close(void) override;
 
-	int RawSendData(unsigned char *channelData);
+    virtual int SendData(unsigned char *channelData) override;
+    virtual void PrepData(unsigned char *channelData) override;
+    virtual void DumpConfig(void) override;
 
-	void DumpConfig(void);
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) override;
 
   private:
-	ledscape_config_t   *m_config;
-	ledscape_t          *m_leds;
+    void StopPRU(bool wait = true);
+    int StartPRU(bool both);
 
-	std::string                m_subType;
-	int                        m_maxStringLen;
-	std::vector<PixelString*>  m_strings;
+    std::string                m_subType;
+    int                        m_maxStringLen;
+    int                        m_numStrings;
+    size_t                     m_frameSize;
+    std::vector<PixelString*>  m_strings;
+    
+    uint8_t            *m_lastData;
+    uint8_t            *m_curData;
+    uint32_t           m_curFrame;
+    int                m_stallCount;
+ 
+    BBBPru             *m_pru;
+    BBB48StringData    *m_pruData;
 
-	void ApplyPinMap(const int *map);
-	int MapPins(void);
+    BBBPru             *m_pru0;
+    BBB48StringData    *m_pru0Data;
 };
 
 #endif /* _BBB48STRING_H */

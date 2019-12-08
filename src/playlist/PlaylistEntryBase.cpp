@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Base Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -28,21 +28,21 @@
 #include "log.h"
 #include "PlaylistEntryBase.h"
 
-int PlaylistEntryBase::m_playlistEntryCount = 0;
-
 /*
  *
  */
-PlaylistEntryBase::PlaylistEntryBase()
+PlaylistEntryBase::PlaylistEntryBase(PlaylistEntryBase *parent)
   : m_enabled(1),
 	m_isStarted(0),
 	m_isPlaying(0),
 	m_isFinished(0),
 	m_playOnce(0),
-	m_playCount(0)
+	m_playCount(0),
+	m_isPrepped(0),
+	m_parent(parent)
 {
+    LogDebug(VB_PLAYLIST, "PlaylistEntryBase::PlaylistEntryBase()\n");
 	m_type = "base";
-	m_playlistEntryID = m_playlistEntryCount++;
 }
 
 /*
@@ -69,6 +69,7 @@ int PlaylistEntryBase::Init(Json::Value &config)
 	m_isStarted = 0;
 	m_isPlaying = 0;
 	m_isFinished = 0;
+	m_config = config;
 
 	return 1;
 }
@@ -78,14 +79,12 @@ int PlaylistEntryBase::Init(Json::Value &config)
  */
 int PlaylistEntryBase::CanPlay(void)
 {
-	if (m_playOnce && (m_playCount > 0))
-	{
+	if (m_playOnce && (m_playCount > 0)) {
 		LogDebug(VB_PLAYLIST, "%s item exceeds play count\n", m_type.c_str());
 		return 0;
 	}
 
-	if (!m_enabled)
-	{
+	if (!m_enabled) {
 		LogDebug(VB_PLAYLIST, "%s item disabled\n", m_type.c_str());
 		return 0;
 	}
@@ -156,6 +155,16 @@ int PlaylistEntryBase::IsFinished(void)
 /*
  *
  */
+int PlaylistEntryBase::Prep(void)
+{
+	m_isPrepped = 1;
+
+	return 1;
+}
+
+/*
+ *
+ */
 int PlaylistEntryBase::Process(void)
 {
 	return 1;
@@ -190,16 +199,24 @@ void PlaylistEntryBase::Dump(void)
 {
 	LogDebug(VB_PLAYLIST, "---- Playlist Entry ----\n");
 	LogDebug(VB_PLAYLIST, "Entry Type: %s\n", m_type.c_str());
-	LogDebug(VB_PLAYLIST, "Entry ID  : %d\n", m_playlistEntryID);
 	LogDebug(VB_PLAYLIST, "Entry Note: %s\n", m_note.c_str());
 }
 
 /*
  *
  */
-Json::Value PlaylistEntryBase::GetConfig(void)
+Json::Value PlaylistEntryBase::GetMqttStatus(void)
 {
 	Json::Value result;
+	result["type"]       = m_type;
+	result["playOnce"]   = m_playOnce;
+
+	return result;
+}
+
+Json::Value PlaylistEntryBase::GetConfig(void)
+{
+	Json::Value result = m_config;
 
 	result["type"]       = m_type;
 	result["enabled"]    = m_enabled;
@@ -208,7 +225,6 @@ Json::Value PlaylistEntryBase::GetConfig(void)
 	result["isFinished"] = m_isFinished;
 	result["playOnce"]   = m_playOnce;
 	result["playCount"]  = m_playCount;
-	result["entryID"]    = m_playlistEntryID;
 
 	return result;
 }

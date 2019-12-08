@@ -1,7 +1,7 @@
 /*
- *   Channel Test code for Falcon Pi Player (FPP)
+ *   Channel Test code for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -36,7 +36,7 @@
 class ChannelTester {
   public:
     ChannelTester();
-	~ChannelTester();
+	virtual ~ChannelTester();
 
 	int  SetupTest(std::string configStr);
 
@@ -45,8 +45,9 @@ class ChannelTester {
 
 	std::string GetConfig(void);
 
+    
+    static ChannelTester INSTANCE;
   private:
-	unsigned int     m_testing;
 	TestPatternBase *m_testPattern;
 	pthread_mutex_t  m_testLock;
 	std::string      m_configStr;

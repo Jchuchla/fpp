@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Base Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -34,8 +34,8 @@
 
 class PlaylistEntryBase {
   public:
-  	PlaylistEntryBase();
-	~PlaylistEntryBase();
+	PlaylistEntryBase(PlaylistEntryBase *parent = NULL);
+	virtual ~PlaylistEntryBase();
 
 	virtual int  Init(Json::Value &config);
 
@@ -44,6 +44,7 @@ class PlaylistEntryBase {
 	virtual int  IsPlaying(void);
 	virtual int  IsFinished(void);
 
+	virtual int  Prep(void);
 	virtual int  Process(void);
 	virtual int  Stop(void);
 
@@ -53,17 +54,29 @@ class PlaylistEntryBase {
 
 	virtual Json::Value GetConfig(void);
 
+	virtual Json::Value GetMqttStatus(void);
+
 	virtual std::string ReplaceMatches(std::string in);
 
-	int          GetPlaylistEntryID(void) { return m_playlistEntryID; }
-
 	std::string  GetType(void) { return m_type; }
+	int          IsPrepped(void) { return m_isPrepped; }
+    
+    
+    enum class PlaylistBranchType {
+        None,
+        Index,
+        Offset
+    };
+    virtual PlaylistBranchType GetNextBranchType() { return PlaylistBranchType::None; }
+    virtual std::string  GetNextSection(void) { return ""; }
+    virtual int          GetNextItem(void) { return 0; }
+
 
   protected:
 	int          CanPlay(void);
 	void         FinishPlay(void);
 
-  	std::string  m_type;
+	std::string  m_type;
 	std::string  m_note;
 	int          m_enabled;
 	int          m_isStarted;
@@ -71,10 +84,11 @@ class PlaylistEntryBase {
 	int          m_isFinished;
 	int          m_playOnce;
 	int          m_playCount;
+	int          m_isPrepped;
 
-	int          m_playlistEntryID;
-	static int   m_playlistEntryCount;
 
+	Json::Value  m_config;
+	PlaylistEntryBase *m_parent;
 };
 
 #endif

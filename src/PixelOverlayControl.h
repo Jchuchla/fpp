@@ -1,7 +1,7 @@
 /*
- *   Pixel Overlay controller for Falcon Pi Player (FPP)
+ *   Pixel Overlay controller for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -30,10 +30,13 @@
 #define FPPCHANNELMEMORYMAPMINORVER 0
 #define FPPCHANNELMEMORYMAPSIZE     131072
 
-#define FPPCHANNELMEMORYMAPDATAFILE  "/var/tmp/FPPChannelData"
-#define FPPCHANNELMEMORYMAPCTRLFILE  "/var/tmp/FPPChannelCtrl"
-#define FPPCHANNELMEMORYMAPPIXELFILE "/var/tmp/FPPChannelPixelMap"
-
+#define FPPCHANNELMEMORYMAPPATH      "/run/fppd"
+#define FPPCHANNELMEMORYMAPDATAFILE  "/run/fppd/FPPChannelData"
+#define FPPCHANNELMEMORYMAPCTRLFILE  "/run/fppd/FPPChannelCtrl"
+#define FPPCHANNELMEMORYMAPPIXELFILE "/run/fppd/FPPChannelPixelMap"
+#define FPPCHANNELMEMORYMAPDATAFILE_OLD  "/var/tmp/FPPChannelData"
+#define FPPCHANNELMEMORYMAPCTRLFILE_OLD  "/var/tmp/FPPChannelCtrl"
+#define FPPCHANNELMEMORYMAPPIXELFILE_OLD "/var/tmp/FPPChannelPixelMap"
 /*
  * Header block on channel data memory map control interface file.
  * We want the size of this to equal 256 bytes so we have room for

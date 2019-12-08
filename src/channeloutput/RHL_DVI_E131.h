@@ -1,7 +1,7 @@
 /*
  *   Ron's Holiday Lights DVI to E1.31 Channel Output for Falcon Player (FPP)
  *
- *   Copyright (C) 2015 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -33,14 +33,16 @@
 class RHLDVIE131Output : public ChannelOutputBase {
   public:
 	RHLDVIE131Output(unsigned int startChannel, unsigned int channelCount);
-	~RHLDVIE131Output();
+	virtual ~RHLDVIE131Output();
 
-	int Init(Json::Value config);
-	int Close(void);
+	virtual int Init(Json::Value config) override;
+	virtual int Close(void) override;
 
-	int RawSendData(unsigned char *channelData);
+	virtual int SendData(unsigned char *channelData) override;
 
-	void DumpConfig(void);
+	virtual void DumpConfig(void) override;
+
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) override;
 
   private:
 	int     m_fbFd;

@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Media Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -29,24 +29,26 @@
 #include <string>
 
 #include "PlaylistEntryBase.h"
-#include "mediaoutput.h"
+#include "mediaoutput/mediaoutput.h"
 
 class PlaylistEntryMedia : public PlaylistEntryBase {
   public:
-  	PlaylistEntryMedia();
-	~PlaylistEntryMedia();
+	PlaylistEntryMedia(PlaylistEntryBase *parent = NULL);
+	virtual ~PlaylistEntryMedia();
 
-	int  Init(Json::Value &config);
+	virtual int  Init(Json::Value &config) override;
 
-	int  StartPlaying(void);
-	int  Process(void);
-	int  Stop(void);
+    virtual int  PreparePlay();
+	virtual int  StartPlaying(void) override;
+	virtual int  Process(void) override;
+	virtual int  Stop(void) override;
 
-	int  HandleSigChild(pid_t pid);
+	virtual int  HandleSigChild(pid_t pid) override;
 
-	void Dump(void);
+	virtual void Dump(void) override;
 
-	Json::Value GetConfig(void);
+	virtual Json::Value GetConfig(void) override;
+	virtual Json::Value GetMqttStatus(void) override;
 
 	std::string GetMediaName(void) { return m_mediaFilename; }
 
@@ -60,14 +62,16 @@ class PlaylistEntryMedia : public PlaylistEntryBase {
 	float m_mediaSeconds;
 	int   m_speedDelta;
 
+    long long m_openTime;
+    static int m_openStartDelay;
   private:
 	int OpenMediaOutput(void);
 	int CloseMediaOutput(void);
 
 	std::string        m_mediaFilename;
+    std::string        m_videoOutput;
 	MediaOutputBase   *m_mediaOutput;
 	pthread_mutex_t    m_mediaOutputLock;
-	MediaOutputStatus  m_mediaOutputStatus;
 };
 
 #endif

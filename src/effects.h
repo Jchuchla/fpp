@@ -1,7 +1,7 @@
 /*
- *   Effects handler for Falcon Pi Player (FPP)
+ *   Effects handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -27,33 +27,16 @@
 #ifndef EFFECTS_H_
 #define EFFECTS_H_
 
-#include <stdio.h>
-
-//typedef struct eseqheader {
-//} eSeqHeader;
-
-typedef struct fppeffect {
-	char     *name;
-	FILE     *fp;
-	int       stepSize;
-	int       modelSize;
-	int       startChannel;
-	int       loop;
-	int       background;
-} FPPeffect;
-
-extern FPPeffect *effects[];
+#include <string>
 
 int  GetRunningEffects(char *msg, char **result);
 int  IsEffectRunning(void);
-int  IsEffectRunning(int effectID);
-int  IsEffectRunning(const char *effectName);
 int  InitEffects(void);
 void CloseEffects(void);
-int  StartEffect(const char *effectName, int startChannel, int loop = 0);
-int  StopEffect(const char *effectName);
+int  StartEffect(const std::string &effectName, int startChannel, int loop = 0, bool bg = false);
+int  StartFSEQAsEffect(const std::string &effectName, int loop = 0, bool bg = false);
+int  StopEffect(const std::string &effectName);
 int  StopEffect(int effectID);
-void StopEffects(void);
 void StopAllEffects(void);
 int  OverlayEffects(char *channelData);
 

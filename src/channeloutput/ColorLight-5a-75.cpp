@@ -1,7 +1,7 @@
 /*
  *   ColorLight 5a-75 Channel Output driver for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -28,13 +28,13 @@
  *   	- Data Length:     98
  *   	- Source MAC:      22:22:33:44:55:66
  *   	- Destination MAC: 11:22:33:44:55:66
- *   	- Ether Type:      0x0101
+ *   	- Ether Type:      0x0101 (have also seen 0x0100, 0x0104, 0x0107.
  *
- *   0x0AFF Packet: (send second)
+ *   0x0AFF Packet: (send second, but not at all in some captures)
  *   	- Data Length:     63
  *   	- Source MAC:      22:22:33:44:55:66
  *   	- Destination MAC: 11:22:33:44:55:66
- *   	- Ether Type:      0x0AFF
+ *   	- Ether Type:      0x0AFF 
  *   	- Data[0]:         0xFF
  *   	- Data[1]:         0xFF
  *   	- Data[2]:         0xFF
@@ -43,15 +43,25 @@
  *      - Data Length:     (Row_Width * 3) + 7
  *   	- Source MAC:      22:22:33:44:55:66
  *   	- Destination MAC: 11:22:33:44:55:66
- *   	- Ether Type:      0x5500
- *   	- Data[0]:         Row Number (0-255)
- *   	- Data[1]:         0x00
- *   	- Data[2]:         0x00
- *   	- Data[3]:         0x00
- *   	- Data[4]:         0x80
- *   	- Data[5]:         0x08
- *   	- Data[6]:         0x80
+ *   	- Ether Type:      0x5500 + MSB of Row Number
+ *   	                     0x5500 for rows 0-255
+ *   	                     0x5501 for rows 256-511
+ *   	- Data[0]:         Row Number LSB
+ *   	- Data[1]:         MSB of pixel offset for this packet
+ *   	- Data[2]:         LSB of pixel offset for this packet
+ *   	- Data[3]:         MSB of pixel count in packet
+ *   	- Data[4]:         LSB of pixel count in packet
+ *   	- Data[5]:         0x08 - ?? unsure what this is
+ *   	- Data[6]:         0x80 - ?? unsure what this is
  *   	- Data[7-end]:     RGB order pixel data
+ *
+ *   Sample data packets seen in captures:
+ *           0  1  2  3  4  5  6
+ *     55 00 00 00 00 01 F1 00 00 (first 497 pixels on a 512 wide display)
+ *     55 00 00 01 F1 00 0F 00 00 (last 15 pixels on a 512 wide display)
+ *     55 00 00 00 00 01 20 08 88 (288 pixel wide display)
+ *     55 00 00 00 00 00 80 08 88 (128 pixel wide display)
+ *
  */
 
 #include <arpa/inet.h>
@@ -65,10 +75,20 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <cmath>
 
 #include "common.h"
+#include "Warnings.h"
 #include "ColorLight-5a-75.h"
 #include "log.h"
+
+
+extern "C" {
+    ColorLight5a75Output *createOutputColorLight5a75(unsigned int startChannel,
+                                           unsigned int channelCount) {
+        return new ColorLight5a75Output(startChannel, channelCount);
+    }
+}
 
 
 /*
@@ -86,7 +106,6 @@ ColorLight5a75Output::ColorLight5a75Output(unsigned int startChannel, unsigned i
 	m_buffer_0AFF_len(0),
 	m_data(NULL),
 	m_rowSize(0),
-	m_pktSize(0),
 	m_panelWidth(0),
 	m_panelHeight(0),
 	m_panels(0),
@@ -99,8 +118,6 @@ ColorLight5a75Output::ColorLight5a75Output(unsigned int startChannel, unsigned i
 {
 	LogDebug(VB_CHANNELOUT, "ColorLight5a75Output::ColorLight5a75Output(%u, %u)\n",
 		startChannel, channelCount);
-
-	m_maxChannels = 256 * 256 * 3;
 }
 
 /*
@@ -144,16 +161,14 @@ int ColorLight5a75Output::Init(Json::Value config)
 	m_colorOrder = ColorOrderFromString(config["colorOrder"].asString());
 
 	m_panelMatrix =
-		new PanelMatrix(m_panelWidth, m_panelHeight, 3, m_invertedData);
+		new PanelMatrix(m_panelWidth, m_panelHeight, m_invertedData);
 
-	if (!m_panelMatrix)
-	{
+	if (!m_panelMatrix) {
 		LogErr(VB_CHANNELOUT, "Unable to create PanelMatrix\n");
 		return 0;
 	}
 
-	for (int i = 0; i < config["panels"].size(); i++)
-	{
+	for (int i = 0; i < config["panels"].size(); i++) {
 		Json::Value p = config["panels"][i];
 		char orientation = 'N';
 		const char *o = p["orientation"].asString().c_str();
@@ -174,9 +189,13 @@ int ColorLight5a75Output::Init(Json::Value config)
 						break;
 		}
 
+		if (p["colorOrder"].asString() == "")
+			p["colorOrder"] = ColorOrderToString(m_colorOrder);
+
 		m_panelMatrix->AddPanel(p["outputNumber"].asInt(),
 			p["panelNumber"].asInt(), orientation,
-			p["xOffset"].asInt(), p["yOffset"].asInt());
+			p["xOffset"].asInt(), p["yOffset"].asInt(),
+			ColorOrderFromString(p["colorOrder"].asString()));
 
 		if (p["outputNumber"].asInt() > m_outputs)
 			m_outputs = p["outputNumber"].asInt();
@@ -202,10 +221,8 @@ int ColorLight5a75Output::Init(Json::Value config)
 
 	m_matrix = new Matrix(m_startChannel, m_width, m_height);
 
-	if (config.isMember("subMatrices"))
-	{
-		for (int i = 0; i < config["subMatrices"].size(); i++)
-		{
+	if (config.isMember("subMatrices")) {
+		for (int i = 0; i < config["subMatrices"].size(); i++) {
 			Json::Value sm = config["subMatrices"][i];
 
 			m_matrix->AddSubMatrix(
@@ -217,6 +234,25 @@ int ColorLight5a75Output::Init(Json::Value config)
 				sm["yOffset"].asInt());
 		}
 	}
+    
+    float gamma = 1.0;
+    if (config.isMember("gamma")) {
+        gamma = atof(config["gamma"].asString().c_str());
+    }
+    if (gamma < 0.01 || gamma > 50.0) {
+        gamma = 1.0;
+    }
+    for (int x = 0; x < 256; x++) {
+        float f = x;
+        f = 255.0 * pow(f / 255.0f, gamma);
+        if (f > 255.0) {
+            f = 255.0;
+        }
+        if (f < 0.0) {
+            f = 0.0;
+        }
+        m_gammaCurve[x] = round(f);
+    }
 
 	if (config.isMember("interface"))
 		m_ifName = config["interface"].asString();
@@ -228,8 +264,7 @@ int ColorLight5a75Output::Init(Json::Value config)
 	// Setup 0x0101 packet data
 	m_buffer_0101_len = sizeof(struct ether_header) + 98;
 	m_buffer_0101 = (char *)calloc(m_buffer_0101_len, 1);
-	if (!m_buffer_0101)
-	{
+	if (!m_buffer_0101) {
 		LogErr(VB_CHANNELOUT, "Error allocating m_buffer_0101\n");
 		return 0;
 	}
@@ -243,8 +278,7 @@ int ColorLight5a75Output::Init(Json::Value config)
 	// Setup 0x0AFF packet data
 	m_buffer_0AFF_len = sizeof(struct ether_header) + 63;
 	m_buffer_0AFF = (char *)calloc(m_buffer_0AFF_len, 1);
-	if (!m_buffer_0AFF)
-	{
+	if (!m_buffer_0AFF) {
 		LogErr(VB_CHANNELOUT, "Error allocating m_buffer_0AFF\n");
 		return 0;
 	}
@@ -267,20 +301,17 @@ int ColorLight5a75Output::Init(Json::Value config)
 	SetHostMACs(m_buffer);
 
 	m_rowSize = m_longestChain * m_panelWidth * 3;
-	m_pktSize = sizeof(struct ether_header) + 7 + m_rowSize;
 
 
 	// Open our raw socket
-	if ((m_fd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW)) == -1)
-	{
+	if ((m_fd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW)) == -1) {
 		LogErr(VB_CHANNELOUT, "Error creating raw socket: %s\n", strerror(errno));
 		return 0;
 	}
 
 	memset(&m_if_idx, 0, sizeof(struct ifreq));
 	strcpy(m_if_idx.ifr_name, m_ifName.c_str());
-	if (ioctl(m_fd, SIOCGIFINDEX, &m_if_idx) < 0)
-	{
+    if (ioctl(m_fd, SIOCGIFINDEX, &m_if_idx) < 0) {
 		LogErr(VB_CHANNELOUT, "Error getting index of %s inteface: %s\n",
 			m_ifName.c_str(), strerror(errno));
 		return 0;
@@ -289,14 +320,6 @@ int ColorLight5a75Output::Init(Json::Value config)
 	m_sock_addr.sll_ifindex = m_if_idx.ifr_ifindex;
 	m_sock_addr.sll_halen = ETH_ALEN;
 	memcpy(m_sock_addr.sll_addr, m_eh->ether_dhost, 6);
-
-	m_data[0] = 0x00; // row #
-	m_data[1] = 0x00; // ??
-	m_data[2] = 0x00; // ??
-	m_data[3] = 0x01; // ??
-	m_data[4] = 0x00; // ??, mplayer code had 0x00 here
-	m_data[5] = 0x08; // ??
-	m_data[6] = 0x88; // ??
 
 	m_rowData = m_data + 7;
 
@@ -313,11 +336,16 @@ int ColorLight5a75Output::Close(void)
 	return ChannelOutputBase::Close();
 }
 
+void ColorLight5a75Output::GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) {
+    addRange(m_startChannel, m_startChannel + m_channelCount - 1);
+}
 /*
  *
  */
 void ColorLight5a75Output::PrepData(unsigned char *channelData)
 {
+	m_matrix->OverlaySubMatrices(channelData);
+
 	unsigned char *r = NULL;
 	unsigned char *g = NULL;
 	unsigned char *b = NULL;
@@ -327,18 +355,15 @@ void ColorLight5a75Output::PrepData(unsigned char *channelData)
 
 	channelData += m_startChannel; // FIXME, this function gets offset 0
 
-	for (int output = 0; output < m_outputs; output++)
-	{
+	for (int output = 0; output < m_outputs; output++) {
 		int panelsOnOutput = m_panelMatrix->m_outputPanels[output].size();
 
-		for (int i = 0; i < panelsOnOutput; i++)
-		{
+		for (int i = 0; i < panelsOnOutput; i++) {
 			int panel = m_panelMatrix->m_outputPanels[output][i];
 			int chain = (panelsOnOutput - 1) - m_panelMatrix->m_panels[panel].chain;
 			chain = m_panelMatrix->m_panels[panel].chain;
 
-			for (int y = 0; y < m_panelHeight; y++)
-			{
+			for (int y = 0; y < m_panelHeight; y++) {
 				int px = chain * m_panelWidth;
 				int yw = y * m_panelWidth * 3;
 
@@ -346,45 +371,9 @@ void ColorLight5a75Output::PrepData(unsigned char *channelData)
 
 				for (int x = 0; x < pw3; x += 3)
 				{
-					s = channelData + m_panelMatrix->m_panels[panel].pixelMap[yw + x];
-
-					switch (m_colorOrder)
-					{
-						default:
-						case kColorOrderRGB:	r = s;
-												g = s + 1;
-												b = s + 2;
-												break;
-
-						case kColorOrderRBG:	r = s;
-												b = s + 1;
-												g = s + 2;
-												break;
-
-						case kColorOrderGRB:	g = s;
-												r = s + 1;
-												b = s + 2;
-												break;
-
-						case kColorOrderGBR:	g = s;
-												b = s + 1;
-												r = s + 2;
-												break;
-
-						case kColorOrderBRG:	b = s;
-												r = s + 1;
-												g = s + 2;
-												break;
-
-						case kColorOrderBGR:	b = s;
-												g = s + 1;
-												r = s + 2;
-												break;
-					}
-
-					*(dst++) = *r;
-					*(dst++) = *g;
-					*(dst++) = *b;
+					*(dst++) = m_gammaCurve[channelData[m_panelMatrix->m_panels[panel].pixelMap[yw + x]]];
+					*(dst++) = m_gammaCurve[channelData[m_panelMatrix->m_panels[panel].pixelMap[yw + x + 1]]];
+					*(dst++) = m_gammaCurve[channelData[m_panelMatrix->m_panels[panel].pixelMap[yw + x + 2]]];
 
 					px++;
 				}
@@ -396,38 +385,78 @@ void ColorLight5a75Output::PrepData(unsigned char *channelData)
 /*
  *
  */
-int ColorLight5a75Output::RawSendData(unsigned char *channelData)
+int ColorLight5a75Output::SendData(unsigned char *channelData)
 {
-	LogExcess(VB_CHANNELOUT, "ColorLight5a75Output::RawSendData(%p)\n", channelData);
+	LogExcess(VB_CHANNELOUT, "ColorLight5a75Output::SendData(%p)\n", channelData);
 
-	if (sendto(m_fd, m_buffer_0101, m_buffer_0101_len, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0)
-	{
+	if (sendto(m_fd, m_buffer_0101, m_buffer_0101_len, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0) {
 		LogErr(VB_CHANNELOUT, "Error sending 0x0101 packet: %s\n", strerror(errno));
 		return 0;
 	}
 
-	if (sendto(m_fd, m_buffer_0AFF, m_buffer_0AFF_len, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0)
-	{
+	if (sendto(m_fd, m_buffer_0AFF, m_buffer_0AFF_len, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0) {
 		LogErr(VB_CHANNELOUT, "Error sending 0x0AFF packet: %s\n", strerror(errno));
 		return 0;
 	}
 
 	char *rowPtr = (char *)m_outputFrame;
 	int row = 0;
-	for (row = 0; row < m_rows; row++)
-	{
-		m_data[0] = row;
-		memcpy(m_rowData, rowPtr, m_rowSize);
+	int offset = 0;
+	int pixelOffset = 0;
+	int maxPixelsPerPacket = 497;
+	int maxBytesPerPacket = maxPixelsPerPacket * 3;
+	int bytesInPacket = 0;
+	int pixelsInPacket = 0;
+	int pktSize = 0;
+    long long startTime = GetTimeMS();
 
-		if (sendto(m_fd, m_buffer, m_pktSize, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0)
-		{
-			LogErr(VB_CHANNELOUT, "Error sending row data packet: %s\n", strerror(errno));
-			return 0;
+	for (row = 0; row < m_rows; row++) {
+		if (row < 256) {
+			m_eh->ether_type = htons(0x5500);
+			m_data[0] = row;
+		} else {
+			m_eh->ether_type = htons(0x5501);
+			m_data[0] = row % 256;
+		}
+
+		m_data[5] = 0x08; // ?? still not sure what this value is
+		m_data[6] = 0x80; // ?? still not sure what this value is
+
+		offset = 0;
+		while (offset < m_rowSize) {
+			if ((offset + maxBytesPerPacket) > m_rowSize)
+				bytesInPacket = m_rowSize - offset;
+			else
+				bytesInPacket = maxBytesPerPacket;
+
+			memcpy(m_rowData, rowPtr + offset, bytesInPacket);
+
+			pixelOffset = offset / 3;
+			pixelsInPacket = bytesInPacket / 3;
+
+			m_data[1] = pixelOffset >> 8;      // Pixel Offset MSB
+			m_data[2] = pixelOffset & 0xFF;    // Pixel Offset LSB
+			m_data[3] = pixelsInPacket >> 8;   // Pixels In Packet MSB
+			m_data[4] = pixelsInPacket & 0xFF; // Pixels In Packet LSB
+
+			offset += bytesInPacket;
+
+			pktSize = sizeof(struct ether_header) + 7 + bytesInPacket;
+
+			if (sendto(m_fd, m_buffer, pktSize, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0) {
+				LogErr(VB_CHANNELOUT, "Error sending row data packet: %s\n", strerror(errno));
+				return 0;
+			}
 		}
 
 		rowPtr += m_rowSize;
 	}
-
+    long long endTime = GetTimeMS();
+    long long totalTime = endTime - startTime;
+    if (totalTime > 20) {
+        LogInfo(VB_CHANNELOUT, "Long time to send frame to colorlight: %d ms\n", ((int)totalTime));
+        WarningHolder::AddWarning("Long time to send frame to colorlight: " + std::to_string((int)totalTime) + "ms\n");
+    }
 	return m_channelCount;
 }
 
@@ -443,10 +472,10 @@ void ColorLight5a75Output::DumpConfig(void)
 	LogDebug(VB_CHANNELOUT, "    Rows           : %d\n", m_rows);
 	LogDebug(VB_CHANNELOUT, "    Row Size       : %d\n", m_rowSize);
 	LogDebug(VB_CHANNELOUT, "    m_fd           : %d\n", m_fd);
-	LogDebug(VB_CHANNELOUT, "    Data Pkt Size  : %d\n", m_pktSize);
 	LogDebug(VB_CHANNELOUT, "    Outputs        : %d\n", m_outputs);
 	LogDebug(VB_CHANNELOUT, "    Longest Chain  : %d\n", m_longestChain);
 	LogDebug(VB_CHANNELOUT, "    Inverted Data  : %d\n", m_invertedData);
+	LogDebug(VB_CHANNELOUT, "    Interface      : %s\n", m_ifName.c_str());
 
 	ChannelOutputBase::DumpConfig();
 }

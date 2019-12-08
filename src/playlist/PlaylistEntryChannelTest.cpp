@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Channel Test Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -33,8 +33,9 @@
 /*
  *
  */
-PlaylistEntryChannelTest::PlaylistEntryChannelTest()
-  : m_duration(0),
+PlaylistEntryChannelTest::PlaylistEntryChannelTest(PlaylistEntryBase *parent)
+  : PlaylistEntryBase(parent),
+	m_duration(0),
 	m_startTime(0),
 	m_endTime(0)
 {
@@ -83,7 +84,7 @@ int PlaylistEntryChannelTest::StartPlaying(void)
 	m_startTime = GetTime();
 	m_endTime = m_startTime + (m_duration * 1000000);
 
-	channelTester->SetupTest(m_testConfig);
+    ChannelTester::INSTANCE.SetupTest(m_testConfig);
 
 	return PlaylistEntryBase::StartPlaying();
 }
@@ -99,7 +100,7 @@ int PlaylistEntryChannelTest::Process(void)
 	if (m_isStarted && m_isPlaying && (GetTime() >= m_endTime))
 	{
 		std::string stopConfig(STOP_CONFIG_JSON);
-		channelTester->SetupTest(stopConfig);
+		ChannelTester::INSTANCE.SetupTest(stopConfig);
 
 		m_finishTime = GetTime();
 
@@ -117,7 +118,7 @@ int PlaylistEntryChannelTest::Stop(void)
 	LogDebug(VB_PLAYLIST, "PlaylistEntryChannelTest::Stop()\n");
 
 	std::string stopConfig(STOP_CONFIG_JSON);
-	channelTester->SetupTest(stopConfig);
+	ChannelTester::INSTANCE.SetupTest(stopConfig);
 
 	m_finishTime = GetTime();
 

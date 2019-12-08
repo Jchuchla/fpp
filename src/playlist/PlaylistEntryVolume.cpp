@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Volume Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -26,12 +26,14 @@
 #include "log.h"
 #include "PlaylistEntryVolume.h"
 #include "settings.h"
+#include "mediaoutput/mediaoutput.h"
 
 /*
  *
  */
-PlaylistEntryVolume::PlaylistEntryVolume()
-  : m_volume(0)
+PlaylistEntryVolume::PlaylistEntryVolume(PlaylistEntryBase *parent)
+  : PlaylistEntryBase(parent),
+	m_volume(0)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryVolume::PlaylistEntryVolume()\n");
 
@@ -52,7 +54,10 @@ int PlaylistEntryVolume::Init(Json::Value &config)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryVolume::Init()\n");
 
-	m_volume = config["volume"].asInt();
+    std::string vol = config["volume"].asString();
+    m_volAdjust = ((vol[0] == '-') || (vol[0] == '+'));
+    m_volume = std::atoi(vol.c_str());
+
 
 	return PlaylistEntryBase::Init(config);
 }
@@ -70,7 +75,19 @@ int PlaylistEntryVolume::StartPlaying(void)
 		return 0;
 	}
 
-	setVolume(m_volume);
+
+    if (!m_volAdjust) {
+        setVolume(m_volume);
+    } else {
+        int vol = getVolume();
+        vol += m_volume;
+        if (vol  < 0) {
+            vol = 0;
+        } else if (vol > 100) {
+            vol = 100;
+        }
+        setVolume(vol);
+    }
 
 	PlaylistEntryBase::StartPlaying();
 

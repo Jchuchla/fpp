@@ -1,7 +1,7 @@
 /*
- *   Setting manager for Falcon Pi Player (FPP)
+ *   Setting manager for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -23,13 +23,11 @@
  *   along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "channeloutput/FPD.h"
-#include "falcon.h"
+
 #include "settings.h"
-#include "fppd.h"
 #include "fppversion.h"
 #include "log.h"
-#include "mediaoutput.h"
+#include "fpp.h"
 
 #include <errno.h>
 #include <libgen.h>
@@ -39,52 +37,81 @@
 #include <strings.h>
 #include <getopt.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <pwd.h>
 #include "common.h"
 
+const char *fpp_bool_to_string[] = { "false", "true", "default" };
 
-char *fpp_bool_to_string[] = { "false", "true", "default" };
-static struct config settings = { 0 };
+SettingsConfig settings;
 
-/* Prototypes for functions below */
-int findSettingIndex(char *setting);
+SettingsConfig::~SettingsConfig() {
+    if (binDirectory) free(binDirectory);
+    if (fppDirectory) free(fppDirectory);
+    if (mediaDirectory) free(mediaDirectory);
+    if (musicDirectory) free(musicDirectory);
+    if (sequenceDirectory) free(sequenceDirectory);
+    if (eventDirectory) free(eventDirectory);
+    if (videoDirectory) free(videoDirectory);
+    if (effectDirectory) free(effectDirectory);
+    if (scriptDirectory) free(scriptDirectory);
+    if (pluginDirectory) free(pluginDirectory);
+    if (playlistDirectory) free(playlistDirectory);
+    if (pixelnetFile) free(pixelnetFile);
+    if (scheduleFile) free(scheduleFile);
+    if (logFile) free(logFile);
+    if (silenceMusic) free(silenceMusic);
+    if (settingsFile) free(settingsFile);
+    if (E131interface) free(E131interface);
+    
+    for (auto &a :keyVal) {
+        if (a.second) {
+            free(a.second);
+        }
+    }
+}
 
 /*
  *
  */
 void initSettings(int argc, char **argv)
 {
+    char tmpDir[256];
+    char mediaDir[256];
+    
+    memset(tmpDir, 0, sizeof(tmpDir));
+    memset(mediaDir, 0, sizeof(mediaDir));
+    
 	settings.binDirectory = strdup(dirname(argv[0]));
+    if (strlen(settings.binDirectory) == 1 && settings.binDirectory[0] == '.') {
+        getcwd(tmpDir, sizeof(tmpDir));
+        free(settings.binDirectory);
+        settings.binDirectory = strdup(tmpDir);
+    }
 
 	settings.fppMode = PLAYER_MODE;
+    
+    strcpy(tmpDir, settings.binDirectory);
 
-	char *tmp = getcwd(NULL, 0);
-	if ( tmp == NULL )
-		settings.fppDirectory = strdup("/opt/fpp");
-	else
-	{
-		// trim off src/ or bin/
-		char *offset = NULL;
-		int size = strlen(tmp);
+    // trim off src/ or bin/
+    char *offset = NULL;
+    int size = strlen(tmpDir);
 
-		if ((size > 4) && (!strcmp(&tmp[size - 4], "/src")))
-			offset = &tmp[size - 4];
-		else if ((size > 4) && (!strcmp(&tmp[size - 4], "/bin")))
-			offset = &tmp[size - 4];
-		else if ((size > 8) && (!strcmp(&tmp[size - 8], "/scripts")))
-			offset = &tmp[size - 8];
+    if ((size > 4) && (!strcmp(&tmpDir[size - 4], "/src")))
+        offset = &tmpDir[size - 4];
+    else if ((size > 4) && (!strcmp(&tmpDir[size - 4], "/bin")))
+        offset = &tmpDir[size - 4];
+    else if ((size > 8) && (!strcmp(&tmpDir[size - 8], "/scripts")))
+        offset = &tmpDir[size - 8];
 
-		if (offset != NULL)
-			*offset = 0;
+    if (offset != NULL)
+        *offset = 0;
+    
+    settings.fppDirectory = strdup(tmpDir);
+    
 
-		settings.fppDirectory = strdup(tmp);
-
-		free(tmp);
-	}
-
-	char tmpDir[64];
-	char mediaDir[64];
 	if (DirectoryExists("/home/fpp"))
 		strcpy(mediaDir, "/home/fpp");
 	else
@@ -110,8 +137,6 @@ void initSettings(int argc, char **argv)
 	strcpy(tmpDir, mediaDir);
 	settings.pluginDirectory = strdup(strcat(tmpDir, "/plugins"));
 	strcpy(tmpDir, mediaDir);
-	settings.universeFile = strdup(strcat(tmpDir, "/universes"));
-	strcpy(tmpDir, mediaDir);
 	settings.pixelnetFile = strdup(strcat(tmpDir, "/config/Falcon.FPDV1"));
 	strcpy(tmpDir, mediaDir);
 	settings.scheduleFile = strdup(strcat(tmpDir, "/schedule"));
@@ -119,8 +144,6 @@ void initSettings(int argc, char **argv)
 	settings.logFile = strdup(strcat(tmpDir, "/logs/fppd.log"));
 	strcpy(tmpDir, mediaDir);
 	settings.silenceMusic = strdup(strcat(tmpDir, "/silence.ogg"));
-	strcpy(tmpDir, mediaDir);
-	settings.bytesFile = strdup(strcat(tmpDir, "/bytesReceived"));
 	strcpy(tmpDir, mediaDir);
 	settings.settingsFile = strdup(strcat(tmpDir, "/settings"));
 	settings.daemonize = 1;
@@ -130,30 +153,26 @@ void initSettings(int argc, char **argv)
 
 	SetLogLevel("info");
 	SetLogMask("most");
-
-	// FIXME, include defaults from above in here
-	bzero(settings.keys, sizeof(settings.keys));
-	bzero(settings.values, sizeof(settings.values));
 }
 
 // Returns a string that's the white-space trimmed version
 // of the input string.  Also trim double quotes now that the
 // settings file will have double quotes in it.
-char *trimwhitespace(const char *str)
+char *trimwhitespace(const char *str, int quotesAlso)
 {
 	const char *end;
 	size_t out_size;
 	char *out;
 
 	// Trim leading space
-	while((isspace(*str)) || (*str == '"')) str++;
+	while((isspace(*str)) || (quotesAlso && (*str == '"'))) str++;
 
 	if(*str == 0)  // All spaces?
 		return strdup("");
 
 	// Trim trailing space
 	end = str + strlen(str) - 1;
-	while(end > str && ((isspace(*end)) || (*end == '"'))) end--;
+	while(end > str && ((isspace(*end)) || (quotesAlso && (*end == '"')))) end--;
 	end++;
 
 	// Set output size to minimum of trimmed string length
@@ -182,7 +201,7 @@ char *trimwhitespace(const char *str)
 char *modeToString(int mode)
 {
 	if ( mode == PLAYER_MODE )
-		return strdup("fppMode");
+		return strdup("player");
 	else if ( mode == BRIDGE_MODE )
 		return strdup("bridge");
 	else if ( mode == MASTER_MODE )
@@ -193,256 +212,16 @@ char *modeToString(int mode)
 	return NULL;
 }
 
-void usage(char *appname)
-{
-printf("Usage: %s [OPTION...]\n"
-"\n"
-"fppd is the Falcon Player daemon.  It runs and handles playback of sequences,\n"
-"audio, etc.  Normally it is kicked off by a startup task and daemonized,\n"
-"however you can optionally kill the automatically started daemon and invoke it\n"
-"manually via the command line or via the web interface.  Configuration is\n"
-"supported for developers by specifying command line options, or editing a\n"
-"config file that controls most settings.  For more information on that, read\n"
-"the source code, it will not likely be documented any time soon.\n"
-"\n"
-"Options:\n"
-"  -c, --config-file FILENAME    - Location of alternate configuration file\n"
-"  -f, --foreground              - Don't daemonize the application.  In the\n"
-"                                  foreground, all logging will be on the\n"
-"                                  console instead of the log file\n"
-"  -d, --daemonize               - Daemonize even if the config file says not to.\n"
-"  -v, --volume VOLUME           - Set a volume (over-written by config file)\n"
-"  -m, --mode MODE               - Set the mode: \"player\", \"bridge\",\n"
-"                                  \"master\", or \"remote\"\n"
-"  -B, --media-directory DIR     - Set the media directory\n"
-"  -M, --music-directory DIR     - Set the music directory\n"
-"  -S, --sequence-directory DIR  - Set the sequence directory\n"
-"  -P, --playlist-directory DIR  - Set the playlist directory\n"
-"  -u, --universe-file FILENAME  - Set the universe file\n"
-"  -p, --pixelnet-file FILENAME  - Set the pixelnet file\n"
-"  -s, --schedule-file FILENAME  - Set the schedule-file\n"
-"  -l, --log-file FILENAME       - Set the log file\n"
-"  -b, --bytes-file FILENAME     - Set the bytes received file\n"
-"  -H  --detect-hardware         - Detect Falcon hardware on SPI port\n"
-"  -C  --configure-hardware      - Configured detected Falcon hardware on SPI\n"
-"  -h, --help                    - This menu.\n"
-"      --log-level LEVEL         - Set the log output level:\n"
-"                                  \"info\", \"warn\", \"debug\", \"excess\")\n"
-"      --log-mask LIST           - Set the log output mask, where LIST is a\n"
-"                                  comma-separated list made up of one or more\n"
-"                                  of the following items:\n"
-"                                    channeldata - channel data itself\n"
-"                                    channelout  - channel output code\n"
-"                                    command     - command processing\n"
-"                                    control     - Control socket debugging\n"
-"                                    e131bridge  - E1.31 bridge\n"
-"                                    effect      - Effects sequences\n"
-"                                    event       - Event handling\n"
-"                                    general     - general messages\n"
-"                                    gpio        - GPIO Input handling\n"
-#ifdef USEHTTPAPI
-"                                    http        - HTTP API requests\n"
-#endif
-"                                    mediaout    - Media file handling\n"
-"                                    player      - Player code\n"
-"                                    playlist    - Playlist handling\n"
-"                                    plugin      - Plugin handling\n"
-"                                    schedule    - Playlist scheduling\n"
-"                                    sequence    - Sequence parsing\n"
-"                                    setting     - Settings parsing\n"
-"                                    sync        - Master/Remote Synchronization\n"
-"                                    all         - ALL log messages\n"
-"                                    most        - Most excluding \"channeldata\"\n"
-"                                  The default logging is:\n"
-"                                    '--log-level info --log-mask most'\n"
-	, appname);
-}
-
-int parseArguments(int argc, char **argv)
-{
-	char *s = NULL;
-	int c;
-	while (1)
-	{
-		int this_option_optind = optind ? optind : 1;
-		int option_index = 0;
-		static struct option long_options[] =
-		{
-			{"displayvers",			no_argument,		0, 'V'},
-			{"config-file",			required_argument,	0, 'c'},
-			{"foreground",			no_argument,		0, 'f'},
-			{"daemonize",			no_argument,		0, 'd'},
-			{"volume",				required_argument,	0, 'v'},
-			{"mode",				required_argument,	0, 'm'},
-			{"media-directory",		required_argument,	0, 'B'},
-			{"music-directory",		required_argument,	0, 'M'},
-			{"sequence-directory",	required_argument,	0, 'S'},
-			{"playlist-directory",	required_argument,	0, 'P'},
-			{"event-directory",		required_argument,	0, 'E'},
-			{"video-directory",		required_argument,	0, 'F'},
-			{"universe-file",		required_argument,	0, 'u'},
-			{"pixelnet-file",		required_argument,	0, 'p'},
-			{"schedule-file",		required_argument,	0, 's'},
-			{"log-file",			required_argument,	0, 'l'},
-			{"bytes-file",			required_argument,	0, 'b'},
-			{"detect-hardware",		no_argument,		0, 'H'},
-			{"configure-hardware",		no_argument,		0, 'C'},
-			{"help",				no_argument,		0, 'h'},
-			{"silence-music",		required_argument,	0,	1 },
-			{"log-level",			required_argument,	0,  2 },
-			{"log-mask",			required_argument,	0,  3 },
-			{0,						0,					0,	0}
-		};
-
-		c = getopt_long(argc, argv, "c:fdVv:m:B:M:S:P:u:p:s:l:b:HChV",
-		long_options, &option_index);
-		if (c == -1)
-			break;
-
-		switch (c)
-		{
-			case 'V':
-				printVersionInfo();
-				exit(0);
-			case 1: //silence-music
-				free(settings.silenceMusic);
-				settings.silenceMusic = strdup(optarg);
-				break;
-			case 2: // log-level
-				if (SetLogLevel(optarg)) {
-					LogInfo(VB_SETTING, "Log Level set to %d (%s)\n", logLevel, optarg);
-				}
-				break;
-			case 3: // log-mask
-				if (SetLogMask(optarg)) {
-					LogInfo(VB_SETTING, "Log Mask set to %d (%s)\n", logMask, optarg);
-				}
-				break;
-			case 'c': //config-file
-				if (FileExists(optarg))
-				{
-					if (loadSettings(optarg) != 0 )
-					{
-						LogErr(VB_SETTING, "Failed to load settings file given as argument: '%s'\n", optarg);
-					}
-					else
-					{
-						free(settings.settingsFile);
-						settings.settingsFile = strdup(optarg);
-					}
-				} else {
-					fprintf(stderr, "Settings file specified does not exist: '%s'\n", optarg);
-				}
-				break;
-			case 'f': //foreground
-				settings.daemonize = false;
-				break;
-			case 'd': //daemonize
-				settings.daemonize = true;
-				break;
-			case 'v': //volume
-				setVolume (atoi(optarg));
-				break;
-			case 'm': //mode
-				if ( strcmp(optarg, "player") == 0 )
-					settings.fppMode = PLAYER_MODE;
-				else if ( strcmp(optarg, "bridge") == 0 )
-					settings.fppMode = BRIDGE_MODE;
-				else if ( strcmp(optarg, "master") == 0 )
-					settings.fppMode = MASTER_MODE;
-				else if ( strcmp(optarg, "remote") == 0 )
-					settings.fppMode = REMOTE_MODE;
-				else
-				{
-					fprintf(stderr, "Error parsing mode\n");
-					exit(EXIT_FAILURE);
-				}
-				break;
-			case 'B': //media-directory
-				free(settings.mediaDirectory);
-				settings.mediaDirectory = strdup(optarg);
-				break;
-			case 'M': //music-directory
-				free(settings.musicDirectory);
-				settings.musicDirectory = strdup(optarg);
-				break;
-			case 'S': //sequence-directory
-				free(settings.sequenceDirectory);
-				settings.sequenceDirectory = strdup(optarg);
-				break;
-			case 'E': //event-directory
-				free(settings.eventDirectory);
-				settings.eventDirectory = strdup(optarg);
-				break;
-			case 'F': //video-directory
-				free(settings.videoDirectory);
-				settings.videoDirectory = strdup(optarg);
-				break;
-			case 'P': //playlist-directory
-				free(settings.playlistDirectory);
-				settings.playlistDirectory = strdup(optarg);
-				break;
-			case 'u': //universe-file
-				free(settings.universeFile);
-				settings.universeFile = strdup(optarg);
-				break;
-			case 'p': //pixelnet-file
-				free(settings.pixelnetFile);
-				settings.pixelnetFile = strdup(optarg);
-				break;
-			case 's': //schedule-file
-				free(settings.scheduleFile);
-				settings.scheduleFile = strdup(optarg);
-				break;
-			case 'l': //log-file
-				free(settings.logFile);
-				settings.logFile = strdup(optarg);
-				break;
-			case 'b': //bytes-file
-				free(settings.bytesFile);
-				settings.bytesFile = strdup(optarg);
-				break;
-			case 'H': //Detect Falcon hardware
-			case 'C': //Configure Falcon hardware
-				SetLogFile("");
-				SetLogLevel("debug");
-				SetLogMask("setting");
-				if (DetectFalconHardware((c == 'C') ? 1 : 0))
-					exit(1);
-				else
-					exit(0);
-				break;
-			case 'h': //help
-				usage(argv[0]);
-				exit(EXIT_SUCCESS);
-				break;
-			default:
-				usage(argv[0]);
-				exit(EXIT_FAILURE);
-		}
-	}
-
-	if (getDaemonize())
-		SetLogFile(getLogFile());
-	else
-		SetLogFile("");
-
-	return 0;
-}
-
 int parseSetting(char *key, char *value)
 {
+    if (settings.keyVal[key]) {
+        free(settings.keyVal[key]);
+        settings.keyVal[key] = strdup(value);
+    }
+
 	if ( strcmp(key, "daemonize") == 0 )
 	{
-		if ( strcmp(value, "false") == 0 )
-			settings.daemonize = false;
-		else if ( strcmp(value, "true") == 0 )
-			settings.daemonize = true;
-		else
-		{
-			fprintf(stderr, "Failed to apply daemonize setting\n");
-			exit(EXIT_FAILURE);
-		}
+		settings.daemonize = atoi(value);
 	}
 	else if ( strcmp(key, "fppMode") == 0 )
 	{
@@ -459,13 +238,6 @@ int parseSetting(char *key, char *value)
 			fprintf(stderr, "Error parsing mode\n");
 			exit(EXIT_FAILURE);
 		}
-	}
-	else if ( strcmp(key, "volume") == 0 )
-	{
-		if ( strlen(value) )
-			setVolume(atoi(value));
-		else
-			fprintf(stderr, "Failed to apply volume setting\n");
 	}
 	else if ( strcmp(key, "alwaysTransmit") == 0 )
 	{
@@ -564,16 +336,6 @@ int parseSetting(char *key, char *value)
 		else
 			fprintf(stderr, "Failed to apply playlistDirectory\n");
 	}
-	else if ( strcmp(key, "universeFile") == 0 )
-	{
-		if ( strlen(value) )
-		{
-			free(settings.universeFile);
-			settings.universeFile = strdup(value);
-		}
-		else
-			fprintf(stderr, "Failed to apply universeFile\n");
-	}
 	else if ( strcmp(key, "pixelnetFile") == 0 )
 	{
 		if ( strlen(value) )
@@ -628,16 +390,6 @@ int parseSetting(char *key, char *value)
 		else
 			fprintf(stderr, "Failed to apply silenceMusic\n");
 	}
-	else if ( strcmp(key, "bytesFile") == 0 )
-	{
-		if ( strlen(value) )
-		{
-			free(settings.bytesFile);
-			settings.bytesFile = strdup(value);
-		}
-		else
-			fprintf(stderr, "Failed to apply bytesFile\n");
-	}
 	else if ( strcmp(key, "E131interface") == 0 )
 	{
 		if ( strlen(value) )
@@ -658,8 +410,6 @@ int parseSetting(char *key, char *value)
 			else
 				fprintf(stderr, "Error, controlMajor value negative\n");
 		}
-		else
-			fprintf(stderr, "Failed to apply controlMajor setting\n");
 	}
 	else if ( strcmp(key, "controlMinor") == 0 )
 	{
@@ -671,8 +421,6 @@ int parseSetting(char *key, char *value)
 			else
 				fprintf(stderr, "Error, controlMinor value negative\n");
 		}
-		else
-			fprintf(stderr, "Failed to apply controlMinor setting\n");
 	}
 
 	return 1;
@@ -690,10 +438,9 @@ int loadSettings(const char *filename)
 
 	if (file != NULL)
 	{
-		char * line = NULL;
-		size_t len = 0;
+		char * line = (char*)calloc(256, 1);
+		size_t len = 256;
 		ssize_t read;
-		int count = 0;
 		int sIndex = 0;
 
 		while ((read = getline(&line, &len, file)) != -1)
@@ -727,15 +474,7 @@ int loadSettings(const char *filename)
 
 			parseSetting(key, value);
 
-			sIndex = findSettingIndex(key);
-			if (sIndex >= 0) {
-				free(settings.values[sIndex]);
-				settings.values[sIndex] = strdup(value);
-			} else {
-				settings.keys[count] = strdup(key);
-				settings.values[count] = strdup(value);
-				count++;
-			}
+            settings.keyVal[key] = strdup(value);
 
 			if ( key )
 			{
@@ -769,48 +508,27 @@ int loadSettings(const char *filename)
 	return 0;
 }
 
-int findSettingIndex(char *setting)
+const char *getSetting(const char *setting)
 {
-	int count = 0;
-
-	if (!setting) {
-		return -1;
-	}
-
-	while (settings.keys[count]) {
-		if (!strcmp(settings.keys[count], setting)) {
-			return count;
-		}
-		count++;
-	}
-
-	return -1;
-}
-
-char *getSetting(char *setting)
-{
-	int count = 0;
-
 	if (!setting) {
 		LogErr(VB_SETTING, "getSetting() called with NULL value\n");
 		return "";
 	}
 
-	while (settings.keys[count]) {
-		if (!strcmp(settings.keys[count], setting)) {
-			LogExcess(VB_SETTING, "getSetting(%s) found '%s'\n", setting, settings.values[count]);
-			return settings.values[count];
-		}
-		count++;
+    if (settings.keyVal[setting] != nullptr) {
+        return settings.keyVal[setting];
 	}
 
 	LogExcess(VB_SETTING, "getSetting(%s) returned setting not found\n", setting);
 	return "";
 }
 
-int getSettingInt(char *setting)
+int getSettingInt(const char *setting, int defaultVal)
 {
-	char *valueStr = getSetting(setting);
+	const char *valueStr = getSetting(setting);
+    if (!valueStr || *valueStr == 0) {
+        return defaultVal;
+    }
 	int   value = strtol(valueStr, NULL, 10);
 
 	LogExcess(VB_SETTING, "getSettingInt(%s) returning %d\n", setting, value);
@@ -826,32 +544,9 @@ int getDaemonize(void)
 #ifndef __GNUG__
 inline
 #endif
-int getFPPmode(void)
+FPPMode getFPPmode(void)
 {
 	return settings.fppMode;
-}
-
-#ifndef __GNUG__
-inline
-#endif
-char *getFPPmodeStr(void)
-{
-	if (settings.fppMode == BRIDGE_MODE)
-		return "bridge";
-	else if (settings.fppMode == PLAYER_MODE)
-		return "player";
-	else if (settings.fppMode == MASTER_MODE)
-		return "master";
-	else if (settings.fppMode == REMOTE_MODE)
-		return "remote";
-
-	return "UNKNOWN";
-}
-
-int getVolume(void)
-{
-	// Default of 0 is also a settable value, just return our data
-	return settings.volume;
 }
 
 #ifndef __GNUG__
@@ -907,10 +602,6 @@ char *getPlaylistDirectory(void)
 {
 	return settings.playlistDirectory;
 }
-char *getUniverseFile(void)
-{
-	return settings.universeFile;
-}
 char *getPixelnetFile(void)
 {
 	return settings.pixelnetFile;
@@ -926,10 +617,6 @@ char *getLogFile(void)
 char *getSilenceMusic(void)
 {
 	return settings.silenceMusic;
-}
-char *getBytesFile(void)
-{
-	return settings.bytesFile;
 }
 
 char *getSettingsFile(void)
@@ -952,51 +639,6 @@ unsigned int getControlMinor(void)
 	return settings.controlMinor;
 }
 
-void setVolume(int volume)
-{
-	char buffer [60];
-	
-	if ( volume < 0 )
-		settings.volume = 0;
-	else if ( volume > 100 )
-		settings.volume = 100;
-	else
-		settings.volume = volume;
-
-	char *mixerDevice = getSetting("AudioMixerDevice");
-	int   audioOutput = getSettingInt("AudioOutput");
-
-	// audioOutput is 0 on Pi where we need to apply volume adjustment formula.
-	// This may break non-Pi, non-BBB platforms, but there aren't any yet.
-	// The same assumption is made in fppxml.php SetVolume()
-	if (audioOutput == 0)
-	{
-		if (mixerDevice)
-			snprintf(buffer, 60, "amixer set %s %.2f%% >/dev/null 2>&1",
-				 mixerDevice, (50 + (settings.volume / 2.0)));
-		else
-			snprintf(buffer, 60, "amixer set PCM %.2f%% >/dev/null 2>&1",
-				 (50 + (settings.volume / 2.0)));
-	}
-	else
-	{
-		if (mixerDevice)
-			snprintf(buffer, 60, "amixer set %s %d%% >/dev/null 2>&1",
-				 mixerDevice, settings.volume);
-		else
-			snprintf(buffer, 60, "amixer set PCM %d%% >/dev/null 2>&1",
-				 settings.volume);
-	}
-
-	LogDebug(VB_SETTING,"Volume change: %d \n", settings.volume);	
-	system(buffer);
-
-	pthread_mutex_lock(&mediaOutputLock);
-	if (mediaOutput)
-		mediaOutput->SetVolume(settings.volume);
-
-	pthread_mutex_unlock(&mediaOutputLock);
-}
 
 /*
 int saveSettingsFile(void)
@@ -1045,8 +687,6 @@ int saveSettingsFile(void)
 	bytes += fwrite(buffer, 1, strlen(buffer), fd);
 	snprintf(buffer, 1024, "%s = %s\n", "playlistDirectory", getPlaylistDirectory());
 	bytes += fwrite(buffer, 1, strlen(buffer), fd);
-	snprintf(buffer, 1024, "%s = %s\n", "universeFile", getUniverseFile());
-	bytes += fwrite(buffer, 1, strlen(buffer), fd);
 	snprintf(buffer, 1024, "%s = %s\n", "pixelnetFile", getPixelnetFile());
 	bytes += fwrite(buffer, 1, strlen(buffer), fd);
 	snprintf(buffer, 1024, "%s = %s\n", "scheduleFile", getScheduleFile());
@@ -1056,8 +696,6 @@ int saveSettingsFile(void)
 	snprintf(buffer, 1024, "%s = %s\n", "silenceMusic", getSilenceMusic());
 	bytes += fwrite(buffer, 1, strlen(buffer), fd);
 	snprintf(buffer, 1024, "%s = %s\n", "mpg123Path", getMPG123Path());
-	bytes += fwrite(buffer, 1, strlen(buffer), fd);
-	snprintf(buffer, 1024, "%s = %s\n", "bytesFile", getBytesFile());
 	bytes += fwrite(buffer, 1, strlen(buffer), fd);
 	snprintf(buffer, 1024, "%s = %d\n", "controlMajor", getControlMajor());
 	bytes += fwrite(buffer, 1, strlen(buffer), fd);
@@ -1071,6 +709,18 @@ int saveSettingsFile(void)
 	return 0;
 }
 */
+
+static inline bool createFile(const char *file) {
+    mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH;
+    int i = open(file, O_RDWR | O_CREAT | O_TRUNC, mode);
+    if (i < 0) {
+        return false;
+    }
+    struct passwd *pwd = getpwnam("fpp");
+    fchown(i, pwd->pw_uid, pwd->pw_gid);
+    close(i);
+    return true;
+}
 
 void CheckExistanceOfDirectoriesAndFiles(void)
 {
@@ -1155,68 +805,22 @@ void CheckExistanceOfDirectoriesAndFiles(void)
 		}
 	}
 
-	if(!FileExists(getUniverseFile()))
-	{
-		LogWarn(VB_SETTING, "Universe file does not exist, creating it.\n");
-
-		char *cmd, *file = getUniverseFile();
-		cmd = (char *)malloc(strlen(file)+7);
-		snprintf(cmd, strlen(file)+7, "touch %s", file);
-		if ( system(cmd) != 0 )
-		{
-			LogErr(VB_SETTING, "Error: Unable to create universe file.\n");
-			exit(EXIT_FAILURE);
-		}
-		free(cmd);
-	}
-	if(!FileExists(getPixelnetFile()))
-	{
-		LogWarn(VB_SETTING, "Pixelnet file does not exist, creating it.\n");
-		CreatePixelnetDMXfile(getPixelnetFile());
-	}
-
 	if(!FileExists(getScheduleFile()))
 	{
 		LogWarn(VB_SETTING, "Schedule file does not exist, creating it.\n");
-
-		char *cmd, *file = getScheduleFile();
-		cmd = (char *)malloc(strlen(file)+7);
-		snprintf(cmd, strlen(file)+7, "touch %s", file);
-		if ( system(cmd) != 0 )
-		{
-			LogErr(VB_SETTING, "Error: Unable to create schedule file.\n");
-			exit(EXIT_FAILURE);
-		}
-		free(cmd);
-	}
-	if(!FileExists(getBytesFile()))
-	{
-		LogWarn(VB_SETTING, "Bytes file does not exist, creating it.\n");
-
-		char *cmd, *file = getBytesFile();
-		cmd = (char *)malloc(strlen(file)+7);
-		snprintf(cmd, strlen(file)+7, "touch %s", file);
-		if ( system(cmd) != 0 )
-		{
-			LogErr(VB_SETTING, "Error: Unable to create bytes file.\n");
-			exit(EXIT_FAILURE);
-		}
-		free(cmd);
+        if (!createFile(getScheduleFile())) {
+            LogErr(VB_SETTING, "Error: Unable to create schedule file.\n");
+            exit(EXIT_FAILURE);
+        }
 	}
 
 	if(!FileExists(getSettingsFile()))
 	{
 		LogWarn(VB_SETTING, "Settings file does not exist, creating it.\n");
-
-		char *cmd, *file = getSettingsFile();
-		cmd = (char *)malloc(strlen(file)+7);
-		snprintf(cmd, strlen(file)+7, "touch %s", file);
-		if ( system(cmd) != 0 )
-		{
+        if (!createFile(getSettingsFile())) {
 			LogErr(VB_SETTING, "Error: Unable to create settings file.\n");
 			exit(EXIT_FAILURE);
 		}
-		free(cmd);
 	}
   
 

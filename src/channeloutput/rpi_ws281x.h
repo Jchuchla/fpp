@@ -1,7 +1,7 @@
 /*
  *   Raspberry Pi rpi_ws281x handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -34,32 +34,35 @@ extern "C" {
 #include "../../external/rpi_ws281x/ws2811.h"
 }
 
-#include "ChannelOutputBase.h"
+#include <vector>
 
-#define RPIWS281X_MAX_CHANNELS  1200
+#include "ThreadedChannelOutputBase.h"
+#include "PixelString.h"
 
-class RPIWS281xOutput : public ChannelOutputBase {
+class RPIWS281xOutput : public ThreadedChannelOutputBase {
   public:
 	RPIWS281xOutput(unsigned int startChannel, unsigned int channelCount);
-	~RPIWS281xOutput();
+	virtual ~RPIWS281xOutput();
 
-	int Init(char *configStr);
+	virtual int Init(Json::Value config) override;
+	virtual int Close(void) override;
 
-	int Close(void);
+	virtual void PrepData(unsigned char *channelData) override;
+	virtual int  RawSendData(unsigned char *channelData) override;
 
-	int RawSendData(unsigned char *channelData);
+	virtual void DumpConfig(void) override;
 
-	void DumpConfig(void);
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) override;
 
   private:
 	void SetupCtrlCHandler(void);
 
+	int          m_ledstringNumber;
 	int          m_string1GPIO;
-	int          m_string1Pixels;
-	std::string  m_string1ColorOrder;
 	int          m_string2GPIO;
-	int          m_string2Pixels;
-	std::string  m_string2ColorOrder;
+	int          m_pixels;
+
+	std::vector<PixelString*> m_strings;
 };
 
 #endif

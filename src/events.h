@@ -1,7 +1,7 @@
 /*
- *   Events handler for Falcon Pi Player (FPP)
+ *   Events handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -27,17 +27,38 @@
 #ifndef EVENTS_H_
 #define EVENTS_H_
 
-typedef struct fppevent {
-	char  majorID;
-	char  minorID;
-	char *name;
-	char *effect;
-	int   startChannel;
-	char *script;
-} FPPevent;
+#include <string>
+#include <vector>
+#include <jsoncpp/json/json.h>
 
+#define MAX_EVENT_MAJOR 25
+#define MAX_EVENT_MINOR 25
+
+
+class FPPEvent {
+public:
+    FPPEvent(const std::string &id);
+    FPPEvent(uint8_t major, uint8_t minor);
+    Json::Value toJsonValue();
+    void save();
+    
+	uint8_t  majorID;
+	uint8_t  minorID;
+	std::string name;
+    
+    std::string command;
+    std::vector<std::string> args;
+    
+    
+    static std::string getEventFileName(const std::string &id);
+    std::string getEventFileName();
+private:
+    void Load(const std::string &id);
+};
+
+void UpgradeEvents();
 int TriggerEvent(const char major, const char minor);
 int TriggerEventByID(const char *ID);
-FPPevent* LoadEvent(const char *id);
+FPPEvent* LoadEvent(const char *id);
 
 #endif

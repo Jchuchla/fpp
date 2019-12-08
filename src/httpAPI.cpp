@@ -2,7 +2,7 @@
  *   HTTP API for the Falcon Player Daemon 
  *   Falcon Player project (FPP) 
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -25,33 +25,43 @@
  */
 
 #include "channeloutput/channeloutput.h"
+#include "channeloutput/channeloutputthread.h"
 #include "common.h"
+#include "e131bridge.h"
 #include "fpp.h"
 #include "fppd.h"
 #include "fppversion.h"
 #include "httpAPI.h"
 #include "log.h"
+#include "MultiSync.h"
+#include "playlist/Playlist.h"
+#include "Scheduler.h"
+#include "Warnings.h"
 #include "settings.h"
-#include "Player.h"
 
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <iomanip>
+#include <ctime>
 
 #include "stdlib.h"
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <jsoncpp/json/json.h>
 
-// from command.c
-extern int fppdStartTime;
+#include "mediaoutput/mediaoutput.h"
+#include "sensors/Sensors.h"
+#include "commands/Commands.h"
+#include "PixelOverlay.h"
+#include "Plugins.h"
+
 
 /*
  *
  */
 APIServer::APIServer()
 {
-	fppdStartTime = time(NULL);
 }
 
 /*
@@ -62,7 +72,13 @@ APIServer::~APIServer()
 	m_ws->sweet_kill();
 	m_ws->stop();
 
+    PluginManager::INSTANCE.unregisterApis(m_ws);
+
 	m_ws->unregister_resource("/fppd");
+    m_ws->unregister_resource("/models");
+    m_ws->unregister_resource("/overlays");
+    m_ws->unregister_resource("/command");
+    m_ws->unregister_resource("/commands");
 
 	delete m_pr;
 	delete m_ws;
@@ -81,6 +97,12 @@ void APIServer::Init(void)
 
 	m_pr = new PlayerResource;
 	m_ws->register_resource("/fppd", m_pr, true);
+    m_ws->register_resource("/models", &PixelOverlayManager::INSTANCE, true);
+    m_ws->register_resource("/overlays", &PixelOverlayManager::INSTANCE, true);
+    m_ws->register_resource("/command", &CommandManager::INSTANCE, true);
+    m_ws->register_resource("/commands", &CommandManager::INSTANCE, true);
+
+    PluginManager::INSTANCE.registerApis(m_ws);
 
 	m_ws->start(false);
 }
@@ -97,23 +119,22 @@ void LogRequest(const http_request &req)
 /*
  *
  */
-void LogResponse(const http_request &req, http_response **res = NULL)
+void LogResponse(const http_request &req, int responseCode, const std::string &content)
 {
-	if ((res) && LogLevelIsSet(LOG_EXCESSIVE))
+	if (LogLevelIsSet(LOG_EXCESSIVE))
 	{
-		http_response *resp = *res;
 		LogDebug(VB_HTTP, "API Res: %s%s %d %s\n",
 			req.get_path().c_str(),
 			req.get_querystring().c_str(),
-			resp->get_response_code(),
-			resp->get_content().c_str());
+			responseCode,
+			content.c_str());
 	}
 }
 
 /*
  *
  */
-void PlayerResource::render_GET(const http_request &req, http_response **res)
+const http_response PlayerResource::render_GET(const http_request &req)
 {
 	LogRequest(req);
 
@@ -125,7 +146,7 @@ void PlayerResource::render_GET(const http_request &req, http_response **res)
 	LogDebug(VB_HTTP, "URL: %s %s\n", url.c_str(), req.get_querystring().c_str());
 
 	// Keep IF statement in alphabetical order
-	if (url == "effects")
+    if (url == "effects")
 	{
 		GetRunningEffects(result);
 	}
@@ -141,14 +162,25 @@ void PlayerResource::render_GET(const http_request &req, http_response **res)
 	{
 		GetCurrentStatus(result);
 	}
-	else if (url == "playlists")
+	else if (url == "e131stats")
 	{
-		GetCurrentPlaylists(result);
+		GetE131BytesReceived(result);
 	}
-	else if (boost::starts_with(url, "playlists/"))
+	else if (url == "multiSyncSystems")
 	{
-		boost::replace_first(url, "playlists/", "");
-		LogDebug(VB_HTTP, "API - Getting info for running playlist '%s'\n", url.c_str());
+		GetMultiSyncSystems(result);
+	}
+    else if (url == "playlists")
+    {
+        GetCurrentPlaylists(result);
+    }
+	else if (url == "playlist/filetime")
+	{
+		GetPlaylistFileTime(result);
+	}
+	else if (url == "playlist/config")
+	{
+		GetPlaylistConfig(result);
 	}
 	else if (url == "schedule")
 	{
@@ -164,6 +196,14 @@ void PlayerResource::render_GET(const http_request &req, http_response **res)
 	}
 	else if (url == "volume")
 	{
+        if (req.get_arg("set") != "") {
+            int i = std::atoi(req.get_arg("set").c_str());
+            setVolume(i);
+        }
+        if (req.get_arg("simple") == "true") {
+            std::string v = std::to_string(getVolume());
+            return http_response_builder(v, 200, "text/plain");
+        }
 		result["volume"] = getVolume();
 		SetOKResult(result, "");
 	}
@@ -174,7 +214,7 @@ void PlayerResource::render_GET(const http_request &req, http_response **res)
 	else if (url == "testing")
 	{
 		LogDebug(VB_HTTP, "API - Getting test mode status\n");
-		result["config"] = JSONStringToObject(channelTester->GetConfig().c_str());
+		result["config"] = JSONStringToObject(ChannelTester::INSTANCE.GetConfig().c_str());
 		SetOKResult(result, "");
 	}
 	else
@@ -183,28 +223,29 @@ void PlayerResource::render_GET(const http_request &req, http_response **res)
 
 		result["status"] = "ERROR";
 		result["respCode"] = 404;
-		result["message"] = "endpoint does not exist";
+		result["message"] = std::string("endpoint fppd/") + url + " does not exist";
 	}
 
-	if (!result.isMember("status"))
-	{
+    int responseCode = 200;
+	if (result.empty()) {
 		result["status"] = "ERROR";
 		result["respCode"] = 400;
-		result["message"] = "GET endpoint helper did not set res variable";
-	}
+		result["message"] = "GET endpoint helper did not set result JSON";
+    } else if (result.isMember("respCode")) {
+        responseCode = result["respCode"].asInt();
+    }
 
 	Json::FastWriter fastWriter;
 	std::string resultStr = fastWriter.write(result);
+	LogResponse(req, responseCode, resultStr);
 
-	*res = new http_response(http_response_builder(resultStr.c_str(), result["respCode"].asInt()).string_response());
-
-	LogResponse(req, res);
+	return http_response_builder(resultStr, responseCode, "application/json");
 }
 
 /*
  *
  */
-void PlayerResource::render_POST(const http_request &req, http_response **res)
+const http_response PlayerResource::render_POST(const http_request &req)
 {
 	LogRequest(req);
 
@@ -223,12 +264,12 @@ void PlayerResource::render_POST(const http_request &req, http_response **res)
 		if (!success)
 		{
 			LogErr(VB_CHANNELOUT, "Error parsing POST content\n");
-			return;
+			return http_response_builder("Error parsing POST content", 400).string_response();
 		}
 	}
 
 	// Keep IF statement in alphabetical order
-	if (boost::starts_with(url, "effects/"))
+    if (boost::starts_with(url, "effects/"))
 	{
 		boost::replace_first(url, "effects/", "");
 
@@ -381,7 +422,7 @@ void PlayerResource::render_POST(const http_request &req, http_response **res)
 	}
 	else if (url == "testing")
 	{
-		PostTesting(data["config"], result);
+		PostTesting(data, result);
 	}
 	else if (url == "settings/reload")
 	{
@@ -407,7 +448,7 @@ void PlayerResource::render_POST(const http_request &req, http_response **res)
 
 		result["status"] = "ERROR";
 		result["respCode"] = 404;
-		result["message"] = "endpoint does not exist";
+		result["message"] = std::string("endpoint fppd/") + url + " does not exist";
 	}
 
 
@@ -415,22 +456,21 @@ void PlayerResource::render_POST(const http_request &req, http_response **res)
 	{
 		result["status"] = "ERROR";
 		result["respCode"] = 400;
-		result["message"] = "POST endpoint helper did not set res variable";
+		result["message"] = "POST endpoint helper did not set result JSON";
 	}
 
 	Json::FastWriter fastWriter;
 	std::string resultStr = fastWriter.write(result);
+	LogResponse(req, result["respCode"].asInt(), resultStr);
 
-	*res = new http_response(http_response_builder(resultStr.c_str(), result["respCode"].asInt()).string_response());
-
-	LogResponse(req, res);
+    return http_response_builder(resultStr.c_str(), result["respCode"].asInt(), "application/json").string_response();
 }
 
 
 /*
  *
  */
-void PlayerResource::render_DELETE(const http_request &req, http_response **res)
+const http_response PlayerResource::render_DELETE(const http_request &req)
 {
 	LogRequest(req);
 
@@ -454,7 +494,7 @@ void PlayerResource::render_DELETE(const http_request &req, http_response **res)
 
 		result["status"] = "ERROR";
 		result["respCode"] = 404;
-		result["message"] = "endpoint does not exist";
+		result["message"] = std::string("endpoint fppd/") + url + " does not exist";
 	}
 
 
@@ -462,22 +502,22 @@ void PlayerResource::render_DELETE(const http_request &req, http_response **res)
 	{
 		result["status"] = "ERROR";
 		result["respCode"] = 400;
-		result["message"] = "DELETE endpoint helper did not set res variable";
+		result["message"] = "DELETE endpoint helper did not set result JSON";
 	}
 
 	Json::FastWriter fastWriter;
 	std::string resultStr = fastWriter.write(result);
 
-	*res = new http_response(http_response_builder(resultStr.c_str(), result["respCode"].asInt()).string_response());
+	LogResponse(req, result["respCode"].asInt(), resultStr);
 
-	LogResponse(req, res);
+	return http_response_builder(resultStr.c_str(), result["respCode"].asInt()).string_response();
 }
 
 
 /*
  *
  */
-void PlayerResource::render_PUT(const http_request &req, http_response **res)
+const http_response PlayerResource::render_PUT(const http_request &req)
 {
 	LogRequest(req);
 
@@ -506,7 +546,7 @@ void PlayerResource::render_PUT(const http_request &req, http_response **res)
 
 		result["status"] = "ERROR";
 		result["respCode"] = 404;
-		result["message"] = "endpoint does not exist";
+		result["message"] = std::string("endpoint fppd/") + url + " does not exist";
 	}
 
 
@@ -515,15 +555,15 @@ void PlayerResource::render_PUT(const http_request &req, http_response **res)
 	{
 		result["status"] = "ERROR";
 		result["respCode"] = 400;
-		result["message"] = "PUT endpoint helper did not set res variable";
+		result["message"] = "PUT endpoint helper did not set result JSON";
 	}
 
 	Json::FastWriter fastWriter;
 	std::string resultStr = fastWriter.write(result);
 
-	*res = new http_response(http_response_builder(resultStr.c_str(), result["respCode"].asInt()).string_response());
+	LogResponse(req, result["respCode"].asInt(), resultStr);
 
-	LogResponse(req, res);
+	return http_response_builder(resultStr.c_str(), result["respCode"].asInt()).string_response();;
 }
 
 /*
@@ -575,12 +615,161 @@ void PlayerResource::GetLogSettings(Json::Value &result)
 	result["log"] = log;
 }
 
+inline std::string toStdStringAndFree(char * v) {
+    std::string s = v;
+    free(v);
+    return s;
+}
+inline std::string secondsToTime(int i) {
+    std::stringstream sstr;
+    int min = i / 60;
+    int sec = i % 60;
+    sstr << std::setw(2) << std::setfill('0') << min;
+    sstr << ":";
+    sstr << std::setw(2) << std::setfill('0') << sec;
+    return sstr.str();
+}
 /*
  *
  */
 void PlayerResource::GetCurrentStatus(Json::Value &result)
 {
 	LogDebug(VB_HTTP, "API - Getting fppd status\n");
+
+    int mode = getFPPmode();
+    result["fppd"] = "running";
+    result["mode"] = mode;
+    result["mode_name"] = toStdStringAndFree(modeToString(getFPPmode()));
+    result["status"] = playlist->getPlaylistStatus();
+    result["status_name"] = ChannelTester::INSTANCE.Testing() ? "testing" : (playlist->getPlaylistStatus() == 0 ? "idle" : (playlist->getPlaylistStatus() == 1 ? "playing" : "stopping gracefully"));
+    result["volume"] = getVolume();
+
+    auto t = std::time(nullptr);
+    auto tm = *std::localtime(&t);
+    std::stringstream sstr;
+    sstr << std::put_time(&tm, "%a %b %d %H:%M:%S %Z %Y");
+    std::string str = sstr.str();
+    result["time"] = str;
+    
+    Sensors::INSTANCE.reportSensors(result);
+    std::list<std::string> warnings = WarningHolder::GetWarnings();
+    for (auto & warn : warnings) {
+        result["warnings"].append(warn);
+    }
+    if (mode == 1) {
+        //bridge mode only returns the base information
+        return;
+    }
+
+    // base data returned by all the other modes
+    result["current_playlist"]["playlist"] = "";
+    result["current_playlist"]["type"] = "";
+    result["current_playlist"]["index"] = "0";
+    result["current_playlist"]["count"] = "0";
+    result["current_sequence"] = "";
+    result["current_song"] = "";
+    result["seconds_played"] = "0";
+    result["seconds_remaining"] = "0";
+    result["time_elapsed"] = "00:00";
+    result["time_remaining"] = "00:00";
+
+    char NextPlaylist[128] = "No playlist scheduled.";
+    char NextScheduleStartText[64] = "";
+    scheduler->GetNextScheduleStartText(NextScheduleStartText);
+    scheduler->GetNextPlaylistText(NextPlaylist);
+    
+    if (getFPPmode() == REMOTE_MODE) {
+        int secsElapsed = 0;
+        int secsRemaining = 0;
+        std::string seqFilename;
+        std::string mediaFilename;
+        if (sequence->IsSequenceRunning()) {
+            seqFilename = sequence->m_seqFilename;
+            secsElapsed = sequence->m_seqSecondsElapsed;
+            secsRemaining = sequence->m_seqSecondsRemaining;
+        }
+        if (mediaOutput) {
+            mediaFilename = mediaOutput->m_mediaFilename;
+            secsElapsed = mediaOutputStatus.secondsElapsed;
+            secsRemaining = mediaOutputStatus.secondsRemaining;
+        }
+        
+        if (seqFilename != "" || mediaFilename != "") {
+            result["status"] = 1;
+            result["status_name"] = "playing";
+        }
+        
+        result["playlist"] = seqFilename;
+        result["sequence_filename"] = seqFilename;
+        result["media_filename"] = mediaFilename;
+        result["current_sequence"] = seqFilename;
+        result["current_song"] = mediaFilename;
+        result["seconds_played"] = std::to_string(secsElapsed);
+        result["seconds_elapsed"] = std::to_string(secsElapsed);
+        result["seconds_remaining"] = std::to_string(secsRemaining);
+        result["time_elapsed"] = secondsToTime(secsElapsed);
+        result["time_remaining"] = secondsToTime(secsRemaining);
+    } else if (playlist->getPlaylistStatus() == FPP_STATUS_IDLE) {
+        result["next_playlist"]["playlist"] = NextPlaylist;
+        result["next_playlist"]["start_time"] = NextScheduleStartText;
+        result["repeat_mode"] = "0";
+    } else {
+        Json::Value pl = playlist->GetInfo();
+        if (pl["currentEntry"].isMember("dynamic")) {
+            pl["currentEntry"] = pl["currentEntry"]["dynamic"];
+        }
+        result["repeat_mode"] = pl["repeat"].asInt();
+        result["next_playlist"]["playlist"] = NextPlaylist;
+        result["next_playlist"]["start_time"] = NextScheduleStartText;
+
+        std::string plname = pl["name"].asString();
+        plname = plname.substr(plname.find_last_of("\\/") + 1);
+        plname = plname.substr(0, plname.find_last_of("."));
+        result["current_playlist"]["playlist"] = plname;
+        result["current_playlist"]["index"] = std::to_string(playlist->GetPosition());
+        result["current_playlist"]["count"] = std::to_string(pl["size"].asInt());
+        result["current_playlist"]["type"] = pl["currentEntry"]["type"].asString();
+
+        int secsElapsed = 0;
+        int secsRemaining = 0;
+  
+        std::string currentSeq;
+        std::string currentSong;
+
+        if ((pl["currentEntry"]["type"] == "both") ||
+            (pl["currentEntry"]["type"] == "media")) {
+            
+            currentSeq = pl["currentEntry"]["type"].asString() == "both"
+                ? pl["currentEntry"]["sequence"]["sequenceName"].asString() : "";
+            currentSong = pl["currentEntry"]["type"].asString() == "both"
+                ? pl["currentEntry"]["media"]["mediaFilename"].asString()
+                : pl["currentEntry"]["mediaFilename"].asString();
+
+            secsElapsed = pl["currentEntry"]["type"].asString() == "both"
+                ? pl["currentEntry"]["media"]["secondsElapsed"].asInt()
+                : pl["currentEntry"]["secondsElapsed"].asInt();
+            secsRemaining = pl["currentEntry"]["type"].asString() == "both"
+                ? pl["currentEntry"]["media"]["secondsRemaining"].asInt()
+                : pl["currentEntry"]["secondsRemaining"].asInt();
+        } else if (pl["currentEntry"]["type"] == "sequence") {
+            currentSeq = pl["currentEntry"]["sequenceName"].asString();
+            secsElapsed = sequence->m_seqSecondsElapsed;
+            secsRemaining = sequence->m_seqSecondsRemaining;
+        } else if (pl["currentEntry"]["type"] == "script") {
+            currentSeq = pl["currentEntry"]["scriptFilename"].asString();
+            secsElapsed = pl["currentEntry"]["secondsElapsed"].asInt();
+        } else {
+            secsElapsed = pl["currentEntry"]["type"].asString() == "pause" ? pl["currentEntry"]["duration"].asInt() - pl["currentEntry"]["remaining"].asInt() : 0;
+            secsRemaining = pl["currentEntry"]["type"].asString() == "pause" ? pl["currentEntry"]["remaining"].asInt() : 0;
+        }
+        result["current_sequence"] = currentSeq;
+        result["current_song"] = currentSong;
+        result["seconds_played"] = std::to_string(secsElapsed);
+        result["seconds_elapsed"] = std::to_string(secsElapsed);
+        result["seconds_remaining"] = std::to_string(secsRemaining);
+        result["time_elapsed"] = secondsToTime(secsElapsed);
+        result["time_remaining"] = secondsToTime(secsRemaining);
+    }
 }
 
 /*
@@ -590,8 +779,70 @@ void PlayerResource::GetCurrentPlaylists(Json::Value &result)
 {
 	LogDebug(VB_HTTP, "API - Getting current playlist\n");
 
+	Json::Value names(Json::arrayValue);
+
+	if (playlist->IsPlaying())
+		names.append(playlist->GetPlaylistName());
+
+	result["playlists"] = names;
+
 	SetOKResult(result, "");
-	result["playlists"] = player->GetCurrentPlaylist();
+}
+
+/*
+ *
+ */
+void PlayerResource::GetE131BytesReceived(Json::Value &result)
+{
+	result = GetE131UniverseBytesReceived(); // e131bridge.cpp
+
+	if (result.isMember("universes"))
+		SetOKResult(result, "");
+	else
+		SetErrorResult(result, 400, "GetE131UniverseBytesReceived() did not return any universes.");
+}
+
+/*
+ *
+ */
+void PlayerResource::GetMultiSyncSystems(Json::Value &result)
+{
+	result = multiSync->GetSystems();
+
+	if (result.isMember("systems"))
+		SetOKResult(result, "");
+	else
+		SetErrorResult(result, 400, "MultiSync did not return any systems.");
+}
+
+/*
+ *
+ */
+void PlayerResource::GetPlaylistFileTime(Json::Value &result)
+{
+	if (playlist->IsPlaying())
+	{
+		uint64_t fileTime = playlist->GetFileTime();
+
+		result["fileTime"] = (Json::UInt64)fileTime;
+	}
+	else
+	{
+		result["fileTime"] = 0;
+	}
+
+	SetOKResult(result, "");
+}
+
+/*
+ *
+ */
+void PlayerResource::GetPlaylistConfig(Json::Value &result)
+{
+	if (playlist->IsPlaying())
+		result = playlist->GetConfig();
+
+	SetOKResult(result, "");
 }
 
 /*
@@ -667,12 +918,12 @@ void PlayerResource::PostOutputs(const Json::Value &data, Json::Value &result)
 
 	if (data["command"].asString() == "enable")
 	{
-		player->EnableChannelOutput();
+		EnableChannelOutput();
 		SetOKResult(result, "channel output enabled");
 	}
 	else if (data["command"].asString() == "disable")
 	{
-		player->DisableChannelOutput();
+		DisableChannelOutput();
 		SetOKResult(result, "channel output disabled");
 	}
 }
@@ -691,7 +942,7 @@ void PlayerResource::PostOutputsRemap(const Json::Value &data, Json::Value &resu
 	if (data["command"].asString() == "reload")
 	{
 		// FIXME, need to fix this function to lock the remap array
-		LoadChannelRemapData();
+		//LoadChannelRemapData();
 		SetOKResult(result, "channel remaps reloaded");
 	}
 }
@@ -709,10 +960,10 @@ void PlayerResource::PostSchedule(const Json::Value data, Json::Value &result)
 
 	if (data["command"].asString() == "reload")
 	{
-		if(FPPstatus==FPP_STATUS_IDLE)
-			player->ReLoadCurrentScheduleInfo();
+		if (playlist->getPlaylistStatus() == FPP_STATUS_IDLE)
+			scheduler->ReLoadCurrentScheduleInfo();
 
-		player->ReLoadNextScheduleInfo();
+		scheduler->ReLoadNextScheduleInfo();
 
 		SetOKResult(result, "Schedule reload triggered");
 	}
@@ -726,7 +977,7 @@ void PlayerResource::PostTesting(const Json::Value data, Json::Value &result)
 	Json::FastWriter fastWriter;
 	std::string config = fastWriter.write(data);
 
-	if (channelTester->SetupTest(config))
+	if (ChannelTester::INSTANCE.SetupTest(config))
 	{
 		SetOKResult(result, "Test Mode Activated");
 	}
@@ -734,7 +985,5 @@ void PlayerResource::PostTesting(const Json::Value data, Json::Value &result)
 	{
 		SetOKResult(result, "Test Mode Deactivated");
 	}
-
-	result["config"] = JSONStringToObject(channelTester->GetConfig().c_str());
 }
 

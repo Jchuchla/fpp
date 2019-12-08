@@ -1,7 +1,7 @@
 /*
- *   Sequence Class for Falcon Pi Player (FPP)
+ *   Sequence Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -26,78 +26,95 @@
 #ifndef _SEQUENCE_H
 #define _SEQUENCE_H
 
-#include <pthread.h>
 #include <stdio.h>
 #include <string>
 
-#define FPPD_MAX_CHANNELS 524288
+#include <mutex>
+#include <thread>
+#include <list>
+#include <atomic>
+#include <condition_variable>
+
+#include "fseq/FSEQFile.h"
+
+
+#define FPPD_MAX_CHANNELS (8192*1024)
 #define DATA_DUMP_SIZE    28
+
+//reserve 4 channels of 0 and 4 channels of 0xFF for indexes
+//that require one or the other
+#define FPPD_OFF_CHANNEL FPPD_MAX_CHANNELS
+#define FPPD_WHITE_CHANNEL (FPPD_MAX_CHANNELS + 4)
+#define FPPD_MAX_CHANNEL_NUM (FPPD_WHITE_CHANNEL + 4)
 
 class Sequence {
   public:
-	Sequence(int priority, int startChannel = 0, int blockSize = -1);
+	Sequence();
 	~Sequence();
 
 	int   IsSequenceRunning(void);
-	int   OpenSequenceFile(std::string filename, int startSeconds = 0);
-	void  ProcessSequenceData(int checkControlChannels = 1);
-	int   SeekSequenceFile(int frameNumber);
-	int   ReadSequenceData(void);
-	void  OverlayNextFrame(char *outputBuffer);
+	int   IsSequenceRunning(const std::string &filename);
+	int   OpenSequenceFile(const std::string &filename, int startFrame = 0, int startSecond = -1);
+    void  StartSequence(const std::string &filename, int startFrame);
+    void  StartSequence();
+	void  ProcessSequenceData(int ms, int checkControlChannels = 1);
+	void  SeekSequenceFile(int frameNumber);
+	void  ReadSequenceData(bool forceFirstFrame = false);
+	void  SendSequenceData(void);
+	void  SendBlankingData(void);
+    void  CloseIfOpen(const std::string &filename);
 	void  CloseSequenceFile(void);
 	void  ToggleSequencePause(void);
-	void  SetPauseState(int pause = 1);
 	void  SingleStepSequence(void);
 	void  SingleStepSequenceBack(void);
 	int   SequenceIsPaused(void);
+    bool  isDataProcessed() const { return m_dataProcessed; }
+    void  setDataNotProcessed() { m_dataProcessed = false; }
 
-	int   SequenceFileOpen(void)        { return m_seqFile ? 1 : 0; }
-	int   GetPriority(void)             { return m_priority; }
-	void  SetAutoRepeat(void)           { m_autoRepeat = 1; }
-	int   GetAutoRepeat(void)           { return m_autoRepeat; }
-	int   GetRefreshRate(void)          { return m_seqRefreshRate; }
-
-	long long     GetSequenceID(void)         { return m_sequenceID; }
-	void          SetSequenceID(long long id) { m_sequenceID = id; }
-
-	long long     m_sequenceID;
-	unsigned long m_seqFileSize;
 	int           m_seqDuration;
 	int           m_seqSecondsElapsed;
 	int           m_seqSecondsRemaining;
-	char          m_seqData[FPPD_MAX_CHANNELS] __attribute__ ((aligned (__BIGGEST_ALIGNMENT__)));
-	char          m_seqFilename[1024];
+	int           m_seqMSRemaining;
+	char          m_seqData[FPPD_MAX_CHANNEL_NUM] __attribute__ ((aligned (__BIGGEST_ALIGNMENT__)));
+    std::string   m_seqFilename;
 
   private:
-	char *CurrentSequenceFilename(void);
+	void  BlankSequenceData(void);
+	char  NormalizeControlValue(char in);
 
-	FILE         *m_seqFile;
-	unsigned long m_seqFilePosition;
-	int           m_priority;
-	int           m_autoRepeat;
-	int           m_startChannel;
-	int           m_blockSize;
-	int           m_seqStarting;
+	FSEQFile     *m_seqFile;
+
+    volatile int  m_seqStarting;
 	int           m_seqPaused;
+    int           m_seqStepTime;
 	int           m_seqSingleStep;
 	int           m_seqSingleStepBack;
-	int           m_seqVersionMajor;
-	int           m_seqVersionMinor;
-	int           m_seqVersion;
-	int           m_seqChanDataOffset;
-	int           m_seqFixedHeaderSize;
-	int           m_seqStepSize;
-	int           m_seqStepTime;
-	int           m_seqNumPeriods;
 	int           m_seqRefreshRate;
-	int           m_seqNumUniverses;
-	int           m_seqUniverseSize;
-	int           m_seqGamma;
-	int           m_seqColorEncoding;
+	int           m_seqControlRawIDs;
 	char          m_seqLastControlMajor;
 	char          m_seqLastControlMinor;
+    int           m_remoteBlankCount;
+    bool          m_dataProcessed;
+    int           m_numSeek;
+    
+    std::recursive_mutex m_sequenceLock;
+    
+    std::atomic_int m_lastFrameRead;
+    volatile bool m_doneRead;
+    volatile bool m_shuttingDown;
+    std::thread *m_readThread;
+    std::list<FSEQFile::FrameData*> frameCache;
+    std::list<FSEQFile::FrameData*> pastFrameCache;
+    void clearCaches();
+    std::mutex frameCacheLock;
+    std::mutex readFileLock; //lock for just the stuff needed to read from the file (m_seqFile variable)
+    std::condition_variable frameLoadSignal;
+    std::condition_variable frameLoadedSignal;
 
-	pthread_mutex_t  m_sequenceLock;
+    public:
+    void ReadFramesLoop();
 };
+
+extern Sequence *sequence;
 
 #endif /* _SEQUENCE_H */

@@ -1,7 +1,7 @@
 /*
  *   GPIO Pin Channel Output driver for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -27,22 +27,30 @@
 #define _GPIO_H
 
 #include "ChannelOutputBase.h"
+#include "util/GPIOUtils.h"
 
 class GPIOOutput : public ChannelOutputBase {
   public:
 	GPIOOutput(unsigned int startChannel, unsigned int channelCount);
 	~GPIOOutput();
 
-	int Init(char *configStr);
-	int Close(void);
+    virtual int Init(Json::Value config) override;
 
-	int RawSendData(unsigned char *channelData);
+	virtual int Init(char *configStr) override;
+	virtual int Close(void) override;
 
-	void DumpConfig(void);
+	virtual int SendData(unsigned char *channelData) override;
+
+	virtual void DumpConfig(void) override;
+
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) override {
+        addRange(m_startChannel, m_startChannel);
+    }
 
   private:
-	int m_GPIOPin;
+	const PinCapabilities * m_GPIOPin;
 	int m_invertOutput;
+	int m_softPWM;
 
 };
 

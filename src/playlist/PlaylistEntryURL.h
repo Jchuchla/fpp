@@ -1,7 +1,7 @@
 /*
  *   PlaylistEntryURL Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -34,20 +34,20 @@
 
 class PlaylistEntryURL : public PlaylistEntryBase {
   public:
-  	PlaylistEntryURL();
-	~PlaylistEntryURL();
+	PlaylistEntryURL(PlaylistEntryBase *parent = NULL);
+	virtual ~PlaylistEntryURL();
 
-	int  Init(Json::Value &config);
+	virtual int  Init(Json::Value &config) override;
 
-	int  StartPlaying(void);
-	int  Process(void);
-	int  Stop(void);
+	virtual int  StartPlaying(void) override;
+	virtual int  Process(void) override;
+	virtual int  Stop(void) override;
 
-	std::string ReplaceMatches(std::string in);
+	virtual std::string ReplaceMatches(std::string in) override;
 
-	void Dump(void);
+	virtual void Dump(void) override;
 
-	Json::Value GetConfig(void);
+	Json::Value GetConfig(void) override;
 
   private:
 	int ProcessData(void *buffer, size_t size, size_t nmemb);

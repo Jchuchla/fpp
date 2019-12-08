@@ -3,17 +3,21 @@
 <head>
 <?php
 require_once('config.php');
+require_once('common.php');
 include 'common/menuHead.inc';
 ?>
 <script>
     PlayEntrySelected = 0;
-    $(function() {
-		$('#tblStatusPlaylistEntries').on('mousedown', 'tr', function(event,ui){
-					$('#tblStatusPlaylistEntries tr').removeClass('playlistSelectedEntry');
-          $(this).addClass('playlistSelectedEntry');
-					var items = $('#tblStatusPlaylistEntries tr');
-					PlayEntrySelected  = items.index(this);
+    PlaySectionSelected = '';
 
+    $(function() {
+		$('#tblStatusPlaylist tbody').on('mousedown', 'tr', function(event,ui){
+					$('#tblStatusPlaylist tbody tr').removeClass('playlistSelectedEntry');
+// FIXME, may need to check each tbody individually
+          $(this).addClass('playlistSelectedEntry');
+					var items = $('#tblStatusPlaylistEntries tbody tr');
+					PlayEntrySelected = parseInt($(this).attr('id').substr(11)) - 1;
+					PlaySectionSelected = $(this).parent().attr('id').substr(11);
 		});
 	});
 </script>
@@ -90,6 +94,23 @@ include 'common/menuHead.inc';
 		SetVolume(volume);
 	}
 
+    function PreviousPlaylistEntry()
+    {
+        var xmlhttp=new XMLHttpRequest();
+        var url = "fppxml.php?command=playlistPrevEntry";
+        xmlhttp.open("GET",url,true);
+        xmlhttp.setRequestHeader('Content-Type', 'text/xml');
+        xmlhttp.send();
+    }
+    function NextPlaylistEntry()
+    {
+        var xmlhttp=new XMLHttpRequest();
+        var url = "fppxml.php?command=playlistNextEntry";
+        xmlhttp.open("GET",url,true);
+        xmlhttp.setRequestHeader('Content-Type', 'text/xml');
+        xmlhttp.send();
+    }
+
 	</script>
 
 
@@ -100,6 +121,14 @@ include 'common/menuHead.inc';
 	include 'menu.inc';
   ?>
 <br/>
+<?php
+    if (isset($settings["LastBlock"]) && $settings["LastBlock"] > 1000000 && $settings["LastBlock"] < 7400000) {
+    ?>
+<div id='upgradeFlag' style='background-color:red'>SD card has unused space.  Go to <a href="advancedsettings.php">Advanced Settings</a> to expand the file system or create a new storage partition.</div>
+<br>
+<?php
+    }
+?>
 <div id="programControl" class="settings">
   <fieldset>
     <legend>Program Control</legend>
@@ -113,8 +142,16 @@ include 'common/menuHead.inc';
 							<option id="optFPPDmode_Master" value="6">Player (Master)</option>
 							<option id="optFPPDmode_Remote" value="8">Player (Remote)</option>
 							<option id="optFPPDmode_Bridge" value="1">Bridge</option>
-						</select></td>
+						</select>
+<?
+	if (isset($settings['fppMode']) && ($settings['fppMode'] == 'master' || $settings['fppMode'] == 'player'))
+		echo "<a href='minimal.php'>Switch to Compact Status UI</a>";
+?>
+						</td>
           <td class='controlButton'>&nbsp;</td>
+<td rowspan="3"><div id="sensorData">
+</div>
+</td>
         </tr>
         <tr>
           <td class='controlHeader'> FPPD Status: </td>
@@ -123,18 +160,27 @@ include 'common/menuHead.inc';
         </tr>
         <tr>
           <td class='controlHeader'> FPP Time: </td>
-          <td id = "fppTime" colspan = "3"></td>
+          <td id = "fppTime" colspan = "2"></td>
+        </tr>
+        <tr id="warningsRow"><td colspan="4" id="warningsTd"><div id="warningsDiv"></div></td>
         </tr>
       </table>
+        <hr>
     </div>
-    <div id="bytesTransferred"><H3>Bytes Transferred</H3>
+    <div id="bytesTransferred"><H3>E1.31/DDP/ArtNet Packets and Bytes Received</H3>
+      <table style='width: 100%'>
+        <tr><td align='left'>
+          <input type='button' onClick='GetUniverseBytesReceived();' value='Update'>
+        </td><td align='right'>
+		  <? PrintSettingCheckbox("E1.31 Live Update", "e131statsLiveUpdate", 0, 0, "1", "0"); ?> Live Update Stats
+        </td></tr>
+	  </table>
       <hr>
       <div id="bridgeStatistics1"></div>
       <div id="bridgeStatistics2"></div>
       <div class="clear"></div>
     </div>
     <div id="playerInfo">
-      <hr>
       <div id="remoteStatus">
 	  		<table>
 	  			<tr><td>Remote Status:</td>
@@ -152,8 +198,8 @@ include 'common/menuHead.inc';
         <div class='playerStatusLeft'>
           <table  width= "100%">
             <tr>
-              <td class='playerStatusHeader'>Player Status: </td>
-              <td id="txtPlayerStatus"></td>
+              <td class='playerStatusHeader'>Player&nbsp;Status: </td>
+              <td id="txtPlayerStatus" style="text-align:left; width=80%"></td>
             </tr>
           </table>
         </div>
@@ -177,8 +223,6 @@ include 'common/menuHead.inc';
           </tr>
       </table>
       </div>
-		</div>
-
     <div id="volumeControls">
 			<table width="100%">
           <tr>
@@ -193,29 +237,53 @@ include 'common/menuHead.inc';
 			</table>
 		</div>
 
+		</div>
+
+
     	<div id="playerStatusBottom">
       <div id="statusPlaylist"  class="unselectable">
-        <table id="tblStatusPlaylistHeader" width="100%">
-          <tr class="playlistHeader">
-            <td width="6%">#</td>
-            <td  width="42%">Media File / Event / Pause </td>
-            <td  width="42%">Sequence / Delay</td>
-            <td  width="10%">First/Last</td>
-          </tr>
-        </table>
         <div id= "statusPlaylistContents">
-          <table id="tblStatusPlaylistEntries"   width="100%">
+        <table id="tblStatusPlaylist" width="100%">
+			<colgroup>
+				<col class='colPlaylistNumber'></col>
+				<col class='colPlaylistData1'></col>
+				<col class='colPlaylistData2'></col>
+			</colgroup>
+          <thead>
+          <tr class="playlistHeader">
+            <th class='colPlaylistNumber'>#</th>
+            <th class='colPlaylistData1'>Media File / Script / Event / Pause </th>
+            <th class='colPlaylistData2'>Sequence / Delay / Data</th>
+            <th class='colPlaylistData3'></th>
+          </tr>
+						<tbody id='tblPlaylistLeadInHeader' style='display: none;'>
+							<tr><th colspan=4>-- Lead In --</th></tr>
+						</tbody>
+            <tbody id="tblPlaylistLeadIn">
+            </tbody>
+						<tbody id='tblPlaylistMainPlaylistHeader' style='display: none;'>
+							<tr><th colspan=4>-- Main Playlist --</th></tr>
+						</tbody>
+            <tbody id="tblPlaylistMainPlaylist">
+            </tbody>
+						<tbody id='tblPlaylistLeadOutHeader' style='display: none;'>
+							<tr><th colspan=4>-- Lead Out --</th></tr>
+						</tbody>
+            <tbody id="tblPlaylistLeadOut">
+            </tbody>
           </table>
         </div>
       </div>
 
       <div id="playerControls" style="margin-top:5px">
         <input id= "btnPlay" type="button"  class ="buttons"value="Play" onClick="StartPlaylistNow();">
-        <input id= "btnStopGracefully" type="button"  class ="buttons"value="Stop Gracefully" onClick="StopGracefully();">
+        <input id= "btnPrev" type="button"  class ="buttons"value="Previous" onClick="PreviousPlaylistEntry();">
+        <input id= "btnNext" type="button"  class ="buttons"value="Next" onClick="NextPlaylistEntry();">
+        <input id= "btnStopGracefully" type="button"  class ="buttons" value="Stop Gracefully" onClick="StopGracefully();">
         <input id= "btnStopNow" type="button" class ="buttons" value="Stop Now" onClick="StopNow();">
        </div>
     </div>
-    <div id= "nextPlaylist">
+    <div id="nextPlaylist">
       <table  width="100%">
         <tr>
           <td class='controlHeader'> Next Playlist: </td>
@@ -229,7 +297,8 @@ include 'common/menuHead.inc';
     </div>
 		</div>
   </fieldset>
-</div>
 <?php	include 'common/footer.inc'; ?>
+</div>
+</div>
 </body>
 </html>

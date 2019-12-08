@@ -1,7 +1,7 @@
 /*
  *   Pixelnet USB handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -28,19 +28,22 @@
 
 #include <string>
 
-#include "ChannelOutputBase.h"
+#include "ThreadedChannelOutputBase.h"
 
-class USBPixelnetOutput : public ChannelOutputBase {
+class USBPixelnetOutput : public ThreadedChannelOutputBase {
   public:
 	USBPixelnetOutput(unsigned int startChannel, unsigned int channelCount);
-	~USBPixelnetOutput();
+	virtual ~USBPixelnetOutput();
 
-	int Init(char *configStr);
-	int Close(void);
+    virtual int Init(Json::Value config) override;
+	virtual int Init(char *configStr) override;
+	virtual int Close(void) override;
 
-	int RawSendData(unsigned char *channelData);
+	virtual int RawSendData(unsigned char *channelData) override;
 
-	void DumpConfig(void);
+	virtual void DumpConfig(void) override;
+
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) override;
 
   private:
 	enum DongleType {

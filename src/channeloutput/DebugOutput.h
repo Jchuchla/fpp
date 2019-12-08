@@ -1,7 +1,7 @@
 /*
  *   Debugging Channel Output driver for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -39,22 +39,25 @@
 class DebugOutput : public ChannelOutputBase {
   public:
 	DebugOutput(unsigned int startChannel, unsigned int channelCount);
-	~DebugOutput();
+	virtual ~DebugOutput();
 
-	// Initialize the derived class.  This method must also call
-	// the base class Init() method.
-	int Init(char *configStr);
-
+    virtual int Init(Json::Value config) override;
+    
 	// Close the derived class.  This method must also call the
 	// base class Close() method.
-	int Close(void);
+	virtual int Close(void) override;
 
 	// Main routine to send channel data out
-	int RawSendData(unsigned char *channelData);
+	virtual int SendData(unsigned char *channelData) override;
 
 	// Dump the config variables for debugging.  This method must
 	// also call the base class DumpConfig() method.
-	void DumpConfig(void);
+	virtual void DumpConfig(void) override;
+    
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) override {
+        addRange(m_startChannel, m_startChannel + m_channelCount - 1);
+    }
+
 };
 
 #endif

@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Branch Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -31,10 +31,8 @@
 #include "Playlist.h"
 #include "PlaylistEntryBase.h"
 
-#define PE_BRANCH_TYPE_UNDEFINED      0
-#define PE_BRANCH_TYPE_CLOCK_TIME     1
-#define PE_BRANCH_TYPE_PLAYLIST_TIME  2
-#define PE_BRANCH_TYPE_LOOP_COUNT     3
+#define PE_BRANCH_TYPE_UNDEFINED      ""
+#define PE_BRANCH_TYPE_CLOCK_TIME     "Time"
 
 #define PE_BRANCH_COMP_MODE_UNDEFINED 0
 #define PE_BRANCH_COMP_MODE_LTEQ      1
@@ -43,36 +41,49 @@
 
 class PlaylistEntryBranch : public PlaylistEntryBase {
   public:
-  	PlaylistEntryBranch();
-	~PlaylistEntryBranch();
+	PlaylistEntryBranch(PlaylistEntryBase *parent = NULL);
+	virtual ~PlaylistEntryBranch();
 
-	int  Init(Json::Value &config);
+	virtual int  Init(Json::Value &config) override;
 
-	int  StartPlaying(void);
-	int  Process(void);
-	int  Stop(void);
+	virtual int  StartPlaying(void) override;
 
-	void Dump(void);
+	void SetNext(int isTrue);
 
-	Json::Value GetConfig(void);
+	virtual void Dump(void) override;
+
+	virtual Json::Value GetConfig(void) override;
+
+    virtual PlaylistBranchType GetNextBranchType() override { return m_nextBranchType; }
+    virtual std::string  GetNextSection(void) override { return m_nextSection; }
+    virtual int          GetNextItem(void) override { return m_nextItem; }
 
   private:
-	int  m_branchType;
+	std::string  m_branchType;
 	int  m_comparisonMode;
-	int  m_hour;
-	int  m_minute;
-	int  m_second;
-	int  m_loopCount;
 
-	std::string m_truePlaylistName;
-	std::string m_falsePlaylistName;
+	// Time comparison
+	int  m_sHour;
+	int  m_sMinute;
+	int  m_sSecond;
+	int  m_sDaySecond;
+	int  m_sHourSecond;
+	int  m_eHour;
+	int  m_eMinute;
+	int  m_eSecond;
+	int  m_eDaySecond;
+	int  m_eHourSecond;
 
-	Playlist *m_truePlaylist;
-	Playlist *m_falsePlaylist;
-
-	int          m_conditionTrue;
-	Playlist    *m_livePlaylist;
-	std::string  m_livePlaylistName;
+    PlaylistBranchType m_trueNextBranchType;
+	std::string m_trueNextSection;
+	int         m_trueNextItem;
+    PlaylistBranchType m_falseNextBranchType;
+	std::string m_falseNextSection;
+	int         m_falseNextItem;
+    
+    PlaylistBranchType m_nextBranchType;
+    std::string  m_nextSection;
+    int          m_nextItem;
 };
 
 #endif

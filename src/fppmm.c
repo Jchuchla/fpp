@@ -1,7 +1,7 @@
 /*
- *   Memory Map handler for Falcon Pi Player (FPP)
+ *   Memory Map handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -53,7 +53,7 @@ int                               dataFD     = -1;
 FPPChannelMemoryMapControlHeader *ctrlHeader = NULL;
 char                             *ctrlMap    = NULL;
 int                               ctrlFD     = -1;
-short                            *pixelMap   = NULL;
+uint32_t                         *pixelMap   = NULL;
 int                               pixelFD    = -1;
 
 /*
@@ -79,7 +79,7 @@ void usage(char *appname) {
 /*
  * Parse command line arguments for fppmm binary
  */
-int parseArguments(int argc, char **argv) {
+static void parseArguments(int argc, char **argv) {
 	char *s = NULL;
 	int   c;
 
@@ -222,7 +222,7 @@ int OpenChannelPixelMap(void) {
 		return pixelFD;
 	}
 
-	pixelMap = (short *)mmap(0, FPPD_MAX_CHANNELS * sizeof(short), PROT_WRITE | PROT_READ,
+	pixelMap = (uint32_t *)mmap(0, FPPD_MAX_CHANNELS * sizeof(uint32_t), PROT_WRITE | PROT_READ,
 		MAP_SHARED, pixelFD, 0);
 
 	if (!pixelMap) {
@@ -239,7 +239,7 @@ int OpenChannelPixelMap(void) {
  * Close the channel data memory map pixel map file and cleanup.
  */
 void CloseChannelPixelMap(void) {
-	munmap(pixelMap, FPPD_MAX_CHANNELS);
+	munmap(pixelMap, FPPD_MAX_CHANNELS * sizeof(uint32_t));
 	close(pixelFD);
 
 	pixelFD  = -1;
@@ -348,7 +348,7 @@ void SetMappedBlockActive(char *blockName, int active) {
  */
 void CopyFileToMappedBlock(char *blockName, char *inputFilename) {
 	if (!FileExists(inputFilename)) {
-		printf( "ERROR: Input file %s does not exist!\n" );
+		printf( "ERROR: Input file %s does not exist!\n", inputFilename );
 		return;
 	}
 
@@ -384,7 +384,7 @@ void CopyFileToMappedBlock(char *blockName, char *inputFilename) {
 		char data[FPPD_MAX_CHANNELS];
 		int r = read(fd, data, cb->channelCount);
 		if (r != cb->channelCount) {
-			printf( "WARNING: Expected %d bytes of data but only read %d.\n",
+			printf( "WARNING: Expected %lld bytes of data but only read %d.\n",
 				cb->channelCount, r);
 		} else {
 			int i;
@@ -445,6 +445,28 @@ void DumpMappedBlockInfo(char *blockName) {
 		printf( "Channels  : %lld-%lld (%lld channels)\n",
 			cb->startChannel, cb->startChannel + cb->channelCount - 1,
 			cb->channelCount);
+
+		printf( "String Cnt: %lld\n", cb->stringCount);
+		printf( "Strand Cnt: %lld\n", cb->strandsPerString);
+
+		if ((cb->channelCount % 3) == 0)
+		{
+			int width = 0;
+			int height = 0;
+
+			if (cb->orientation == 'H')
+			{
+				width = cb->channelCount / 3 / cb->stringCount / cb->strandsPerString;
+				height = cb->channelCount / 3 / width;
+			}
+			else // else 'V'ertical
+			{
+				height = cb->channelCount / 3 / cb->stringCount / cb->strandsPerString;
+				width = cb->channelCount / 3 / height;
+			}
+
+			printf( "Layout    : %dx%d\n", width, height);
+		}
 
 		printf( "Status    : ");
 		switch (cb->isActive) {

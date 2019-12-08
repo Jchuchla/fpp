@@ -1,7 +1,7 @@
 /*
  *   MediaOutputBase class for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -66,7 +66,8 @@ class MediaOutputBase {
 	pid_t              m_childPID;
 
   protected:
-
+    bool isChildRunning();
+    
 	unsigned int       m_isPlaying;
 	int                m_childPipe[2];
 	fd_set             m_activeFDSet;

@@ -1,7 +1,7 @@
 /*
  *   Linsn RV9 Channel Output driver for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -28,7 +28,7 @@
  *
  *   First packet of data frame
  *   - bytes  0 -  5 = Dst MAC (00:00:00:00:00:fe)
- *   - bytes  6 - 11 = Src MAC (PC's MAC)
+ *   - bytes  6 - 11 = Src MAC (PC's MAC) (must be same as used to configure)
  *   - bytes 12 - 13 = Protocol (0xAA55)
  *   - bytes 14 - 15 = 2-byte packet number for frame (LSB first)
  *   - byte  16      = 0x00
@@ -54,7 +54,7 @@
  *   - byte  36      = 0x00
  *   - byte  37      = 0x00
  *   - byte  38      = 0x00
- *   - bytes 39 - 44 = Src MAC (PC's MAC)
+ *   - bytes 39 - 44 = Src MAC (PC's MAC) (see note above)
  *   - byte  45      = 0xd2 = (210)
  *   - bytes 46 - 1485 = RGB Data
  */
@@ -70,10 +70,21 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <cmath>
+
 
 #include "common.h"
 #include "Linsn-RV9.h"
 #include "log.h"
+
+
+extern "C" {
+    LinsnRV9Output *createOutputLinsnRV9(unsigned int startChannel,
+                                           unsigned int channelCount) {
+        return new LinsnRV9Output(startChannel, channelCount);
+    }
+}
+
 
 /*
  *
@@ -119,8 +130,6 @@ LinsnRV9Output::LinsnRV9Output(unsigned int startChannel, unsigned int channelCo
 
 	struct FormatCode fc_c2 = { 0xc2, 1024, 512, 1632, 0x1f };
 	m_formatCodes.push_back(fc_c2);
-
-	m_maxChannels = m_formatCodes[m_formatCodes.size()-1].width * m_formatCodes[m_formatCodes.size()-1].height * 3;
 }
 
 /*
@@ -158,7 +167,7 @@ int LinsnRV9Output::Init(Json::Value config)
 	m_colorOrder = ColorOrderFromString(config["colorOrder"].asString());
 
 	m_panelMatrix =
-		new PanelMatrix(m_panelWidth, m_panelHeight, 3, m_invertedData);
+		new PanelMatrix(m_panelWidth, m_panelHeight, m_invertedData);
 
 	if (!m_panelMatrix)
 	{
@@ -166,8 +175,7 @@ int LinsnRV9Output::Init(Json::Value config)
 		return 0;
 	}
 
-	for (int i = 0; i < config["panels"].size(); i++)
-	{
+	for (int i = 0; i < config["panels"].size(); i++) {
 		Json::Value p = config["panels"][i];
 		char orientation = 'N';
 		const char *o = p["orientation"].asString().c_str();
@@ -175,9 +183,13 @@ int LinsnRV9Output::Init(Json::Value config)
 		if (o && *o)
 			orientation = o[0];
 
+		if (p["colorOrder"].asString() == "")
+			p["colorOrder"] = ColorOrderToString(m_colorOrder);
+
 		m_panelMatrix->AddPanel(p["outputNumber"].asInt(),
 			p["panelNumber"].asInt(), orientation,
-			p["xOffset"].asInt(), p["yOffset"].asInt());
+			p["xOffset"].asInt(), p["yOffset"].asInt(),
+			ColorOrderFromString(p["colorOrder"].asString()));
 
 		if (p["outputNumber"].asInt() > m_outputs)
 			m_outputs = p["outputNumber"].asInt();
@@ -239,6 +251,25 @@ int LinsnRV9Output::Init(Json::Value config)
 				sm["yOffset"].asInt());
 		}
 	}
+    
+    float gamma = 1.0;
+    if (config.isMember("gamma")) {
+        gamma = atof(config["gamma"].asString().c_str());
+    }
+    if (gamma < 0.01 || gamma > 50.0) {
+        gamma = 1.0;
+    }
+    for (int x = 0; x < 256; x++) {
+        float f = x;
+        f = 255.0 * pow(f / 255.0f, gamma);
+        if (f > 255.0) {
+            f = 255.0;
+        }
+        if (f < 0.0) {
+            f = 0.0;
+        }
+        m_gammaCurve[x] = round(f);
+    }
 
 	if (config.isMember("interface"))
 		m_ifName = config["interface"].asString();
@@ -342,11 +373,17 @@ int LinsnRV9Output::Close(void)
 	return ChannelOutputBase::Close();
 }
 
+
+void LinsnRV9Output::GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) {
+    addRange(m_startChannel, m_startChannel + m_channelCount - 1);
+}
 /*
  *
  */
 void LinsnRV9Output::PrepData(unsigned char *channelData)
 {
+	m_matrix->OverlaySubMatrices(channelData);
+
 	unsigned char *r = NULL;
 	unsigned char *g = NULL;
 	unsigned char *b = NULL;
@@ -374,45 +411,9 @@ void LinsnRV9Output::PrepData(unsigned char *channelData)
 
 				for (int x = 0; x < pw3; x += 3)
 				{
-					s = channelData + m_panelMatrix->m_panels[panel].pixelMap[yw + x];
-
-					switch (m_colorOrder)
-					{
-						default:
-						case kColorOrderRGB:	r = s;
-												g = s + 1;
-												b = s + 2;
-												break;
-
-						case kColorOrderRBG:	r = s;
-												b = s + 1;
-												g = s + 2;
-												break;
-
-						case kColorOrderGRB:	g = s;
-												r = s + 1;
-												b = s + 2;
-												break;
-
-						case kColorOrderGBR:	g = s;
-												b = s + 1;
-												r = s + 2;
-												break;
-
-						case kColorOrderBRG:	b = s;
-												r = s + 1;
-												g = s + 2;
-												break;
-
-						case kColorOrderBGR:	b = s;
-												g = s + 1;
-												r = s + 2;
-												break;
-					}
-
-					*(dst++) = *r;
-					*(dst++) = *g;
-					*(dst++) = *b;
+					*(dst++) = m_gammaCurve[channelData[m_panelMatrix->m_panels[panel].pixelMap[yw + x]]];
+					*(dst++) = m_gammaCurve[channelData[m_panelMatrix->m_panels[panel].pixelMap[yw + x + 1]]];
+					*(dst++) = m_gammaCurve[channelData[m_panelMatrix->m_panels[panel].pixelMap[yw + x + 2]]];
 
 					px++;
 				}
@@ -424,9 +425,9 @@ void LinsnRV9Output::PrepData(unsigned char *channelData)
 /*
  *
  */
-int LinsnRV9Output::RawSendData(unsigned char *channelData)
+int LinsnRV9Output::SendData(unsigned char *channelData)
 {
-	LogExcess(VB_CHANNELOUT, "LinsnRV9Output::RawSendData(%p)\n", channelData);
+	LogExcess(VB_CHANNELOUT, "LinsnRV9Output::SendData(%p)\n", channelData);
 
 	SetHostMACs(m_buffer);
 	memset(m_data, 0, LINSNRV9_DATA_SIZE);
@@ -446,8 +447,7 @@ int LinsnRV9Output::RawSendData(unsigned char *channelData)
 
 	m_buffer[45] = m_formatCodes[m_formatIndex].code;
 
-	if (sendto(m_fd, m_buffer, LINSNRV9_BUFFER_SIZE, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0)
-	{
+	if (sendto(m_fd, m_buffer, LINSNRV9_BUFFER_SIZE, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0) {
 		LogErr(VB_CHANNELOUT, "Error sending row data packet: %s\n", strerror(errno));
 		return 0;
 	}
@@ -458,19 +458,13 @@ int LinsnRV9Output::RawSendData(unsigned char *channelData)
 	int framesSent = 0;
 
 	memset(m_header, 0, LINSNRV9_HEADER_SIZE);
-// FIXME
-//memset(m_outputFrame, 0x7f, m_outputFrameSize);
-
-	while (frameNumber < m_framePackets)
-	{
+	while (frameNumber < m_framePackets) {
 		m_buffer[14] = (unsigned char)(frameNumber & 0x00FF);
 		m_buffer[15] = (unsigned char)(frameNumber >> 8);
 
 		memcpy(m_data, m_outputFrame + bytesSent, LINSNRV9_DATA_SIZE);
 
-
-		if (sendto(m_fd, m_buffer, LINSNRV9_BUFFER_SIZE, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0)
-		{
+		if (sendto(m_fd, m_buffer, LINSNRV9_BUFFER_SIZE, 0, (struct sockaddr*)&m_sock_addr, sizeof(struct sockaddr_ll)) < 0) {
 			LogErr(VB_CHANNELOUT, "Error sending row data packet: %s\n", strerror(errno));
 			return 0;
 		}

@@ -1,7 +1,7 @@
 /*
  *   FBVirtualDisplay Channel Output for Falcon Player (FPP)
  *
- *   Copyright (C) 2015 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -33,12 +33,12 @@
 class FBVirtualDisplayOutput : protected VirtualDisplayOutput {
   public:
 	FBVirtualDisplayOutput(unsigned int startChannel, unsigned int channelCount);
-	~FBVirtualDisplayOutput();
+	virtual ~FBVirtualDisplayOutput();
 
-	int Init(Json::Value config);
-	int Close(void);
+	virtual int Init(Json::Value config) override;
+	virtual int Close(void) override;
 
-	int RawSendData(unsigned char *channelData);
+	virtual int SendData(unsigned char *channelData) override;
 
   private:
 	int     m_fbFd;
@@ -46,9 +46,11 @@ class FBVirtualDisplayOutput : protected VirtualDisplayOutput {
 
 	int     m_screenSize;
 
+	std::string m_device;
+
 	struct fb_var_screeninfo m_vInfo;
 	struct fb_var_screeninfo m_vInfoOrig;
 	struct fb_fix_screeninfo m_fInfo;
 };
 
-#endif /* _VIRTUALDISPLAY_H */
+#endif /* _FBVIRTUALDISPLAY_H */

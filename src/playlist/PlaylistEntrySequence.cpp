@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Sequence Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -24,14 +24,19 @@
  */
 
 #include "log.h"
-#include "Player.h"
+#include "mqtt.h"
+//#include "Player.h"
+#include "Sequence.h"
 #include "PlaylistEntrySequence.h"
 
-PlaylistEntrySequence::PlaylistEntrySequence()
-  : m_duration(0),
+PlaylistEntrySequence::PlaylistEntrySequence(PlaylistEntryBase *parent)
+  : PlaylistEntryBase(parent),
+	m_duration(0),
 	m_sequenceID(0),
 	m_priority(0),
-	m_startSeconds(0)
+	m_startSeconds(0),
+    m_prepared(false)
+
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntrySequence::PlaylistEntrySequence()\n");
 
@@ -60,6 +65,16 @@ int PlaylistEntrySequence::Init(Json::Value &config)
 	return PlaylistEntryBase::Init(config);
 }
 
+
+int PlaylistEntrySequence::PreparePlay() {
+    if (sequence->OpenSequenceFile(m_sequenceName.c_str(), 0) <= 0) {
+        LogErr(VB_PLAYLIST, "Error opening sequence %s\n", m_sequenceName.c_str());
+        return 0;
+    }
+    m_prepared = true;
+    return 1;
+}
+
 /*
  *
  */
@@ -67,18 +82,28 @@ int PlaylistEntrySequence::StartPlaying(void)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntrySequence::StartPlaying()\n");
 
-	if (!CanPlay())
-	{
+	if (!CanPlay()) {
+        m_prepared = false;
 		FinishPlay();
 		return 0;
 	}
+    
+    if (!m_prepared) {
+        PreparePlay();
+    }
+    
+// FIXME
+//	m_sequenceID = player->StartSequence(m_sequenceName, m_priority, m_startSeconds);
 
-	m_sequenceID = player->StartSequence(m_sequenceName, m_priority, m_startSeconds);
+//	if (!m_sequenceID)
+//		return 0;
 
-	if (!m_sequenceID)
-		return 0;
+    sequence->StartSequence();
 
 	LogDebug(VB_PLAYLIST, "Started Sequence, ID: %d\n", m_sequenceID);
+
+	if (mqtt)
+		mqtt->Publish("playlist/sequence/status", m_sequenceName);
 
 	return PlaylistEntryBase::StartPlaying();
 }
@@ -88,8 +113,18 @@ int PlaylistEntrySequence::StartPlaying(void)
  */
 int PlaylistEntrySequence::Process(void)
 {
-	if (!player->SequenceIsRunning(m_sequenceID))
+// FIXME
+//	if (!player->SequenceIsRunning(m_sequenceID))
+//		FinishPlay();
+
+	if (!sequence->IsSequenceRunning())
+	{
 		FinishPlay();
+        m_prepared = false;
+
+		if (mqtt)
+			mqtt->Publish("playlist/sequence/status", "");
+	}
 
 	return PlaylistEntryBase::Process();
 }
@@ -101,8 +136,14 @@ int PlaylistEntrySequence::Stop(void)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntrySequence::Stop()\n");
 
-	if (!player->StopSequence(m_sequenceName))
-		return 0;
+// FIXME
+//	if (!player->StopSequence(m_sequenceName))
+//		return 0;
+
+	sequence->CloseSequenceFile();
+    m_prepared = false;
+	if (mqtt)
+		mqtt->Publish("playlist/sequence/status", "");
 
 	return PlaylistEntryBase::Stop();
 }
@@ -124,9 +165,19 @@ Json::Value PlaylistEntrySequence::GetConfig(void)
 {
 	Json::Value result = PlaylistEntryBase::GetConfig();
 
-	result["sequenceName"]    = m_sequenceName;
-
-	// FIXME PLAYLIST, need to get things like elapsed/remaining here
+	result["sequenceName"]     = m_sequenceName;
+	result["secondsElapsed"]   = sequence->m_seqSecondsElapsed;
+	result["secondsRemaining"] = sequence->m_seqSecondsRemaining;
 
 	return result;
 }
+Json::Value PlaylistEntrySequence::GetMqttStatus(void) {
+	Json::Value result = PlaylistEntryBase::GetMqttStatus();
+	result["sequenceName"]     = m_sequenceName;
+	result["secondsElapsed"]   = sequence->m_seqSecondsElapsed;
+	result["secondsRemaining"] = sequence->m_seqSecondsRemaining;
+	result["secondsTotal"] = sequence->m_seqDuration;
+
+	return result;
+}
+

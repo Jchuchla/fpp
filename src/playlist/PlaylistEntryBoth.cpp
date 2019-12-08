@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Both Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -25,9 +25,14 @@
 
 #include "log.h"
 #include "PlaylistEntryBoth.h"
+#include "mediadetails.h"
+#include "Sequence.h"
+#include "settings.h"
+#include "common.h"
 
-PlaylistEntryBoth::PlaylistEntryBoth()
-  : m_duration(0),
+PlaylistEntryBoth::PlaylistEntryBoth(PlaylistEntryBase *parent)
+  : PlaylistEntryBase(parent),
+	m_duration(0),
 	m_mediaEntry(NULL),
 	m_sequenceEntry(NULL)
 {
@@ -47,16 +52,20 @@ int PlaylistEntryBoth::Init(Json::Value &config)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryBoth::Init()\n");
 
-	m_sequenceEntry = new PlaylistEntrySequence();
+	m_sequenceEntry = new PlaylistEntrySequence(this);
 	if (!m_sequenceEntry)
 		return 0;
 
-	m_mediaEntry = new PlaylistEntryMedia();
+	m_mediaEntry = new PlaylistEntryMedia(this);
 	if (!m_mediaEntry)
 		return 0;
+    
 
-	if (!m_mediaEntry->Init(config))
-		return 0;
+    if (!m_mediaEntry->Init(config)) {
+        delete m_mediaEntry;
+        m_mediaEntry = nullptr;
+    }
+    m_mediaName = m_mediaEntry->GetMediaName();
 
 	if (!m_sequenceEntry->Init(config))
 		return 0;
@@ -77,14 +86,39 @@ int PlaylistEntryBoth::StartPlaying(void)
 		return 0;
 	}
 
-	if (!m_mediaEntry->StartPlaying())
-		return 0;
-
-	if (!m_sequenceEntry->StartPlaying())
-	{
-		m_mediaEntry->Stop();
+    if (m_mediaEntry && !m_mediaEntry->PreparePlay()) {
+        delete m_mediaEntry;
+		m_mediaEntry = nullptr;
+    }
+    if (!m_mediaEntry) {
+        LogDebug(VB_PLAYLIST, "Skipping media playlist entry, likely blacklisted audio: %s\n", m_mediaName.c_str());
+    }
+    if (!m_sequenceEntry->PreparePlay()) {
+        LogDebug(VB_PLAYLIST, "Problems starting sequence: %s\n", m_sequenceEntry->GetSequenceName().c_str());
+    }
+    if (getFPPmode() == MASTER_MODE && m_mediaEntry && m_mediaEntry->m_openTime) {
+        long long st = GetTimeMS() - m_mediaEntry->m_openTime;
+        if (st < PlaylistEntryMedia::m_openStartDelay) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(PlaylistEntryMedia::m_openStartDelay - st - 2));
+        }
+    }
+    
+	if (!m_sequenceEntry->StartPlaying()) {
+        LogDebug(VB_PLAYLIST, "Could not start sequence: %s\n", m_sequenceEntry->GetSequenceName().c_str());
+        if (m_mediaEntry) {
+            m_mediaEntry->Stop();
+        }
+        FinishPlay();
 		return 0;
 	}
+    if (m_mediaEntry && !m_mediaEntry->StartPlaying()) {
+        LogDebug(VB_PLAYLIST, "Could not start media: %s\n", m_mediaName.c_str());
+        delete m_mediaEntry;
+        m_mediaEntry = nullptr;
+        m_sequenceEntry->Stop();
+        FinishPlay();
+        return 0;
+    }
 
 	return PlaylistEntryBase::StartPlaying();
 }
@@ -94,10 +128,12 @@ int PlaylistEntryBoth::StartPlaying(void)
  */
 int PlaylistEntryBoth::Process(void)
 {
-	m_mediaEntry->Process();
+    LogExcess(VB_PLAYLIST, "PlaylistEntryBoth::Process()\n");
+
+	if (m_mediaEntry) m_mediaEntry->Process();
 	m_sequenceEntry->Process();
 
-	if (m_mediaEntry->IsFinished())
+	if (m_mediaEntry && m_mediaEntry->IsFinished())
 	{
 		FinishPlay();
 		m_sequenceEntry->Stop();
@@ -106,7 +142,7 @@ int PlaylistEntryBoth::Process(void)
 	if (m_sequenceEntry->IsFinished())
 	{
 		FinishPlay();
-		m_mediaEntry->Stop();
+		if (m_mediaEntry) m_mediaEntry->Stop();
 	}
 
 	// FIXME PLAYLIST, handle sync in here somehow
@@ -121,7 +157,7 @@ int PlaylistEntryBoth::Stop(void)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryBoth::Stop()\n");
 
-	m_mediaEntry->Stop();
+	if (m_mediaEntry) m_mediaEntry->Stop();
 	m_sequenceEntry->Stop();
 
 	return PlaylistEntryBase::Stop();
@@ -134,7 +170,7 @@ void PlaylistEntryBoth::Dump(void)
 {
 	PlaylistEntryBase::Dump();
 
-	m_mediaEntry->Dump();
+	if (m_mediaEntry) m_mediaEntry->Dump();
 	m_sequenceEntry->Dump();
 }
 
@@ -145,10 +181,38 @@ Json::Value PlaylistEntryBoth::GetConfig(void)
 {
 	Json::Value result = PlaylistEntryBase::GetConfig();
 
-	result["media"] = m_mediaEntry->GetConfig();
+    if (m_mediaEntry) {
+        result["media"] = m_mediaEntry->GetConfig();
+    } else {
+        //fake it so the display will display the times
+        //where the sequence is
+        result["media"] = m_sequenceEntry->GetConfig();
+    }
 	result["sequence"] = m_sequenceEntry->GetConfig();
 
-	// FIXME PLAYLIST, need to get things like seconds elapsed/remaining ere
 	return result;
 }
 
+Json::Value PlaylistEntryBoth::GetMqttStatus(void)
+{
+	Json::Value result = PlaylistEntryBase::GetMqttStatus();
+    	if (m_mediaEntry) {
+        	result["secondsRemaining"] = m_mediaEntry->m_secondsRemaining;
+        	result["secondsTotal"] = m_mediaEntry->m_secondsTotal;
+        	result["secondsElapsed"] = m_mediaEntry->m_secondsElapsed;
+		result["mediaName"] = m_mediaEntry->GetMediaName();
+
+	}
+	if (m_sequenceEntry) {
+		result["sequenceName"]     = m_sequenceEntry->GetSequenceName();
+        	result["secondsRemaining"] = sequence->m_seqSecondsRemaining;
+        	result["secondsTotal"] = sequence->m_seqDuration;
+        	result["secondsElapsed"] = sequence->m_seqSecondsElapsed;
+	}
+
+    result["mediaTitle"] = MediaDetails::INSTANCE.title;
+    result["mediaArtist"] = MediaDetails::INSTANCE.artist;
+
+
+	return result;
+}

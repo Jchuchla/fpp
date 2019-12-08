@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<html>
 <?php
 
 $skipJSsettings = 1;
@@ -5,20 +7,75 @@ require_once("common.php");
 
 DisableOutputBuffering();
 
-$dirs = Array(
-	'sequences',
-	'videos'
-	);
+$dirs = Array();
+
+if ((isset($settings['MultiSyncCopySequences']) && ($settings['MultiSyncCopySequences'] == 1)) ||
+	(!isset($settings['MultiSyncCopySequences'])))
+	array_push($dirs, 'sequences');
+if (isset($settings['MultiSyncCopyEffects']) && ($settings['MultiSyncCopyEffects'] == 1))
+	array_push($dirs, 'effects');
+if (isset($settings['MultiSyncCopyVideos']) && ($settings['MultiSyncCopyVideos'] == 1))
+	array_push($dirs, 'videos');
+if (isset($settings['MultiSyncCopyEvents']) && ($settings['MultiSyncCopyEvents'] == 1))
+	array_push($dirs, 'events');
+if (isset($settings['MultiSyncCopyScripts']) && ($settings['MultiSyncCopyScripts'] == 1))
+	array_push($dirs, 'scripts');
+
+if (sizeof($dirs) == 0)
+{
+	echo "You do not have any files set to be copied.  Please return to the <a href='multisync.php'>MultiSync setup page</a> and select which files you wish to copy to the remotes.";
+	exit(0);
+}
 
 $remotes = Array();
-if ( isset($_GET['MultiSyncRemotes']) && !empty($_GET['MultiSyncRemotes'])) {
+if (!isset($settings['fppMode']) || ($settings['fppMode'] != 'master')) {
+	echo "ERROR: Only Master FPP instances can sync to Remotes.\n";
+	exit(0);
+} else if ( isset($_GET['MultiSyncRemotes']) && !empty($_GET['MultiSyncRemotes'])) {
 	$remotes = preg_split('/,/', $_GET['MultiSyncRemotes']);
 } else if ( isset($settings['MultiSyncRemotes']) && !empty($settings['MultiSyncRemotes'])) {
-	if ( $settings['MultiSyncRemotes'] != "255.255.255.255" ) {
+	if ( $settings['MultiSyncRemotes'] != "255.255.255.255" && $settings['MultiSyncRemotes'] != "239.70.80.80") {
 		$remotes = preg_split('/,/', $settings['MultiSyncRemotes']);
 	} else {
-		echo "Sync Remotes does not currently work with the 'ALL Remotes' option.\n";
-		exit(0);
+		exec("ip addr show up | grep 'inet ' | awk '{print $2}' | cut -f1 -d/ | grep -v '^127'", $localIPs);
+
+		exec("avahi-browse -artp | grep -v 'IPv6' | sort", $rmtSysOut);
+
+		$uniqRemotes = Array();
+		$remotes = Array();
+
+		foreach ($rmtSysOut as $system)
+		{
+			if (!preg_match("/^=.*fpp-fppd/", $system))
+				continue;
+			if (!preg_match("/fppMode/", $system))
+				continue;
+
+			$parts = explode(';', $system);
+
+			$matches = preg_grep("/" . $parts[7] . "/", $localIPs);
+			if ((!count($matches)) && (count($parts) > 8))
+			{
+				$mode = "unknown";
+
+				$txtParts = explode(',', preg_replace("/\"/", "", $parts[9]));
+
+				foreach ($txtParts as $txtPart)
+				{
+					$kvPair = explode('=', $txtPart);
+					if ($kvPair[0] == "fppMode")
+						$mode = $kvPair[1];
+				}
+
+				if ($mode == "remote")
+					$uniqRemotes[$parts[7]] = 1;
+			}
+		}
+
+		foreach ($uniqRemotes as $ip => $v)
+		{
+			array_push($remotes, $ip);
+		}
 	}
 } else {
 	echo "No remotes configured and no list supplied.\n";
@@ -27,7 +84,6 @@ if ( isset($_GET['MultiSyncRemotes']) && !empty($_GET['MultiSyncRemotes'])) {
 
 ?>
 
-<html>
 <head>
 <title>
 Sync Remotes
@@ -49,7 +105,7 @@ foreach ( $remotes as $remote ) {
 			$compress = "-z";
 		}
 
-		$command = "rsync -av $compress --stats $fppHome/media/$dir/ $remote::media/$dir/ 2>&1";
+		$command = "rsync -rtDlv --modify-window=1 $compress --stats $fppHome/media/$dir/ $remote::media/$dir/ 2>&1";
 
 		echo "Command: $command\n";
 		echo "----------------------------------------------------------------------------------\n";
@@ -63,7 +119,7 @@ foreach ( $remotes as $remote ) {
 ==========================================================================
 Sync Complete.
 </pre>
-<a href='/'>Go to FPP Main Status Page</a><br>
+<a href='index.php'>Go to FPP Main Status Page</a><br>
 <a href='multisync.php'>Go to MultiSync config page</a><br>
 
 </body>

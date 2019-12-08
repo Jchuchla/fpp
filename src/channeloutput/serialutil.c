@@ -1,7 +1,7 @@
 /*
- *   serial port utility functions for Falcon Pi Player (FPP)
+ *   serial port utility functions for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -86,7 +86,7 @@ speed_t SerialGetBaudRate(int baud)
  *
  * Example: SerialOpen("/dev/ttyUSB0", 115200, "N81");
  */
-int SerialOpen(const char *device, int baud, char *mode)
+int SerialOpen(const char *device, int baud, const char *mode, bool output)
 {
 	int fd = 0;
 	struct termios tty;
@@ -98,7 +98,7 @@ int SerialOpen(const char *device, int baud, char *mode)
 		return -1;
 	}
 
-	fd = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    fd = open(device, (output ? O_RDWR : O_RDONLY) | O_NOCTTY | O_NONBLOCK);
 	if (fd < 0)
 		return -1;
 

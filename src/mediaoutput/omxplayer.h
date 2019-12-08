@@ -1,7 +1,7 @@
 /*
- *   omxplayer driver for Falcon Pi Player (FPP)
+ *   omxplayer driver for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -28,28 +28,29 @@
 
 #include "MediaOutputBase.h"
 
-#define MAX_BYTES_OMX 1000
-#define TIME_STR_MAX  8
-
 class omxplayerOutput : public MediaOutputBase {
   public:
 	omxplayerOutput(std::string mediaFilename, MediaOutputStatus *status);
-	~omxplayerOutput();
+	virtual ~omxplayerOutput();
 
-	int  Start(void);
-	int  Stop(void);
-	int  Process(void);
+	virtual int  Start(void) override;
+	virtual int  Stop(void) override;
+	virtual int  Process(void) override;
+    virtual int  IsPlaying(void) override;
+    virtual int  Close(void) override;
 
-	int  AdjustSpeed(int delta);
-	void SetVolume(int volume);
+	virtual int  AdjustSpeed(int delta) override;
+	virtual void SetVolume(int volume) override;
 
   private:
 	int  GetVolumeShift(int volume);
-	void ProcessPlayerData(int bytesRead);
+	void ProcessPlayerData(char * buffer, int bytesRead);
 	void PollPlayerInfo(void);
-
-	char m_omxBuffer[MAX_BYTES_OMX];
+    
+    bool m_allowSpeedAdjust;
 	int  m_volumeShift;
+    bool m_beforeFirstTick;
+    char *m_omxBuffer;
 };
 
 #endif

@@ -1,7 +1,7 @@
 /*
- *   Log handler for Falcon Pi Player (FPP)
+ *   Log handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -35,6 +35,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 int logLevel = LOG_INFO;
@@ -44,7 +45,7 @@ char logFileName[1024] = "";
 char logLevelStr[16];
 char logMaskStr[1024];
 
-void _LogWrite(char *file, int line, int level, int facility, const char *format, ...)
+void _LogWrite(const char *file, int line, int level, int facility, const char *format, ...)
 {
 	// Don't log if we're not logging this facility
 	if (!(logMask & facility))
@@ -55,18 +56,24 @@ void _LogWrite(char *file, int line, int level, int facility, const char *format
 		return;
 
 	va_list arg;
-	time_t t = time(NULL);
+    
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    
 	struct tm tm;
 	char timeStr[32];
 
-	localtime_r(&t, &tm);
-	sprintf(timeStr,"%4d-%.2d-%.2d %.2d:%.2d:%.2d",
+	localtime_r(&tv.tv_sec, &tm);
+    int ms = tv.tv_usec / 1000;
+    
+	sprintf(timeStr,"%4d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d",
 					1900+tm.tm_year,
 					tm.tm_mon+1,
 					tm.tm_mday,
 					tm.tm_hour,
 					tm.tm_min,
-					tm.tm_sec);
+					tm.tm_sec,
+                    ms);
 
 	if (logFileName[0])
 	{
@@ -86,7 +93,7 @@ void _LogWrite(char *file, int line, int level, int facility, const char *format
 			if ( ! logFile )
 			{
 				fprintf(stderr, "Error: Unable to open log file for writing!\n");
-				fprintf(stderr, "%s (%d) %s:%d:",timeStr, syscall(SYS_gettid), file, line);
+				fprintf(stderr, "%s (%ld) %s:%d:",timeStr, syscall(SYS_gettid), file, line);
 				va_start(arg, format);
 				vfprintf(stderr, format, arg);
 				va_end(arg);
@@ -94,7 +101,7 @@ void _LogWrite(char *file, int line, int level, int facility, const char *format
 			}
 		}
 
-		fprintf(logFile, "%s (%d) %s:%d:",timeStr, syscall(SYS_gettid), file, line);
+		fprintf(logFile, "%s (%ld) %s:%d:",timeStr, syscall(SYS_gettid), file, line);
 		va_start(arg, format);
 		vfprintf(logFile, format, arg);
 		va_end(arg);
@@ -102,14 +109,14 @@ void _LogWrite(char *file, int line, int level, int facility, const char *format
 		if (strcmp(logFileName, "stderr") || strcmp(logFileName, "stdout"))
 			fclose(logFile);
 	} else {
-		fprintf(stdout, "%s (%d) %s:%d:", timeStr, syscall(SYS_gettid), file, line);
+		fprintf(stdout, "%s (%ld) %s:%d:", timeStr, syscall(SYS_gettid), file, line);
 		va_start(arg, format);
 		vfprintf(stdout, format, arg);
 		va_end(arg);
 	}
 }
 
-void SetLogFile(char *filename)
+void SetLogFile(const char *filename)
 {
 	strcpy(logFileName, filename);
 }
@@ -193,12 +200,8 @@ int SetLogMask(const char *newMask)
 			logMask |= VB_PLUGIN;
 		} else if (!strcmp(s, "gpio")) {
 			logMask |= VB_GPIO;
-#ifdef USEHTTPAPI
 		} else if (!strcmp(s, "http")) {
 			logMask |= VB_HTTP;
-#endif
-		} else if (!strcmp(s, "player")) {
-			logMask |= VB_PLAYER;
 		} else {
 			fprintf(stderr, "Unknown Log Mask: %s\n", s);
 		}

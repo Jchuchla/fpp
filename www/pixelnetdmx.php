@@ -1,4 +1,7 @@
+<!DOCTYPE html>
+<html>
 <?php
+require_once('config.php');
 require_once('universeentry.php');
 $a = session_id();
 
@@ -15,8 +18,6 @@ $hwFWVer = "1.10";
 
 ?>
 
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <?php	include 'common/menuHead.inc'; ?>
@@ -133,7 +134,7 @@ a:visited{
 <div id="bodyWrapper">
 <?php	include 'menu.inc'; ?>
 
-<div style="width:800px;margin:0 auto;">
+<div style="width:1100px;margin:0 auto;">
 <br \>
   <fieldset style="padding: 10px; border: 2px solid #000;">
 <legend>Pixelnet/DMX Outputs</legend>

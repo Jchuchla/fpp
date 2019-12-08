@@ -1,7 +1,7 @@
 /*
  *   Pixelnet USB handler for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -32,6 +32,12 @@
 #include "serialutil.h"
 #include "USBPixelnet.h"
 
+extern "C" {
+    USBPixelnetOutput *createUSBPixelnetOutput(unsigned int startChannel,
+                                               unsigned int channelCount) {
+        return new USBPixelnetOutput(startChannel, channelCount);
+    }
+}
 /////////////////////////////////////////////////////////////////////////////
 
 /*
@@ -39,7 +45,7 @@
  */
 USBPixelnetOutput::USBPixelnetOutput(unsigned int startChannel,
 	unsigned int channelCount)
-  : ChannelOutputBase(startChannel, channelCount),
+  : ThreadedChannelOutputBase(startChannel, channelCount),
 	m_deviceName(""),
 	m_outputData(NULL),
 	m_pixelnetData(NULL),
@@ -49,7 +55,7 @@ USBPixelnetOutput::USBPixelnetOutput(unsigned int startChannel,
 	LogDebug(VB_CHANNELOUT, "USBPixelnetOutput::USBPixelnetOutput(%u, %u)\n",
 		startChannel, channelCount);
 
-	m_maxChannels = 4096;
+	m_useDoubleBuffer = 1;
 }
 
 /*
@@ -59,7 +65,11 @@ USBPixelnetOutput::~USBPixelnetOutput()
 {
 	LogDebug(VB_CHANNELOUT, "USBPixelnetOutput::~USBPixelnetOutput()\n");
 }
-
+int USBPixelnetOutput::Init(Json::Value config) {
+    char configStr[2048];
+    ConvertToCSV(config, configStr);
+    return Init(configStr);
+}
 /*
  *
  */
@@ -139,7 +149,12 @@ int USBPixelnetOutput::Init(char *configStr)
 		m_outputPacketSize = 4102;
 	}
 
-	return ChannelOutputBase::Init(configStr);
+	return ThreadedChannelOutputBase::Init(configStr);
+}
+
+
+void USBPixelnetOutput::GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) {
+    addRange(m_startChannel, m_startChannel + m_channelCount - 1);
 }
 
 /*
@@ -152,7 +167,7 @@ int USBPixelnetOutput::Close(void)
 	SerialClose(m_fd);
 	m_fd = -1;
 
-	return ChannelOutputBase::Close();
+	return ThreadedChannelOutputBase::Close();
 }
 
 /*
@@ -189,6 +204,6 @@ void USBPixelnetOutput::DumpConfig(void)
 	LogDebug(VB_CHANNELOUT, "    fd                : %d\n", m_fd);
 	LogDebug(VB_CHANNELOUT, "    Output Packet Size: %d\n", m_outputPacketSize);
 
-	ChannelOutputBase::DumpConfig();
+	ThreadedChannelOutputBase::DumpConfig();
 }
 

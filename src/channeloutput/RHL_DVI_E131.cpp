@@ -1,7 +1,7 @@
 /*
  *   Ron's Holiday Lights DVI to E1.31 Channel Output for Falcon Player (FPP)
  *
- *   Copyright (C) 2015 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -42,6 +42,14 @@
 // To disable interpolated scaling on the GPU, add this to /boot/config.txt:
 // scaling_kernel=8
 
+extern "C" {
+    RHLDVIE131Output *createRHLDVIE131Output(unsigned int startChannel,
+                                           unsigned int channelCount) {
+        return new RHLDVIE131Output(startChannel, channelCount);
+    }
+}
+
+
 /*
  *
  */
@@ -57,8 +65,6 @@ RHLDVIE131Output::RHLDVIE131Output(unsigned int startChannel,
 {
 	LogDebug(VB_CHANNELOUT, "RHLDVIE131Output::RHLDVIE131Output(%u, %u)\n",
 		startChannel, channelCount);
-
-	m_maxChannels = FPPD_MAX_CHANNELS;
 }
 
 /*
@@ -175,13 +181,16 @@ int RHLDVIE131Output::Close(void)
 
 	return 1;
 }
-
+void RHLDVIE131Output::GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) {
+    //FIXME??
+    addRange(0, 480*8);
+}
 /*
  *
  */
-int RHLDVIE131Output::RawSendData(unsigned char *channelData)
+int RHLDVIE131Output::SendData(unsigned char *channelData)
 {
-	LogExcess(VB_CHANNELOUT, "RHLDVIE131Output::RawSendData(%p)\n",
+	LogExcess(VB_CHANNELOUT, "RHLDVIE131Output::SendData(%p)\n",
 		channelData);
 
 	// FIXME

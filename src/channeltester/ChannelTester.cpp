@@ -1,7 +1,7 @@
 /*
- *   Channel Test code for Falcon Pi Player (FPP)
+ *   Channel Test code for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Pi Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -35,8 +35,12 @@
 
 // Test Patterns
 #include "RGBChase.h"
+#include "RGBCycle.h"
 #include "RGBFill.h"
 #include "SingleChase.h"
+
+
+ChannelTester ChannelTester::INSTANCE;
 
 
 /*
@@ -59,8 +63,7 @@ ChannelTester::~ChannelTester()
 
 	pthread_mutex_lock(&m_testLock);
 
-	if (m_testPattern)
-	{
+	if (m_testPattern) {
 		delete m_testPattern;
 		m_testPattern = NULL;
 	}
@@ -76,6 +79,7 @@ ChannelTester::~ChannelTester()
 int ChannelTester::SetupTest(std::string configStr)
 {
 	LogDebug(VB_CHANNELOUT, "ChannelTester::SetupTest()\n");
+    LogDebug(VB_CHANNELOUT, "     %s\n", configStr.c_str());
 
 	Json::Value config;
 	Json::Reader reader;
@@ -117,6 +121,8 @@ int ChannelTester::SetupTest(std::string configStr)
 				m_testPattern = new TestPatternRGBChase();
 			else if (patternName == "RGBFill")
 				m_testPattern = new TestPatternRGBFill();
+			else if (patternName == "RGBCycle")
+				m_testPattern = new TestPatternRGBCycle();
 		}
 
 		if (m_testPattern)
@@ -188,7 +194,6 @@ std::string ChannelTester::GetConfig(void)
 {
 	if (!m_testPattern)
 		return std::string("{ \"enabled\": 0 }");
-
 	return m_configStr;
 }
 

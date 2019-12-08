@@ -1,7 +1,7 @@
 /*
  *   Playlist Entry Branch Class for Falcon Player (FPP)
  *
- *   Copyright (C) 2016 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -9,7 +9,7 @@
  *      - Chris Pinkham (CaptainMurdoch)
  *      For additional credits and developers, see credits.php.
  *
- *   The Falcon Pi Player (FPP) is free software; you can redistribute it
+ *   The Falcon Player (FPP) is free software; you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License
  *   as published by the Free Software Foundation; either version 2 of
  *   the License, or (at your option) any later version.
@@ -24,103 +24,132 @@
  */
 
 #include <log.h>
-#include <Player.h>
+//#include <Player.h>
 
 #include "PlaylistEntryBranch.h"
 
-PlaylistEntryBranch::PlaylistEntryBranch()
-  : m_branchType(PE_BRANCH_TYPE_UNDEFINED),
+PlaylistEntryBranch::PlaylistEntryBranch(PlaylistEntryBase *parent)
+  : PlaylistEntryBase(parent),
+	m_branchType(),
 	m_comparisonMode(PE_BRANCH_COMP_MODE_UNDEFINED),
-	m_hour(0),
-	m_minute(0),
-	m_second(0),
-	m_loopCount(0),
-	m_truePlaylist(NULL),
-	m_falsePlaylist(NULL),
-	m_conditionTrue(0),
-	m_livePlaylist(NULL)
+	m_sHour(0),
+	m_sMinute(0),
+	m_sSecond(0),
+	m_sDaySecond(-1),
+	m_sHourSecond(-1),
+	m_eHour(0),
+	m_eMinute(0),
+	m_eSecond(0),
+	m_eDaySecond(-1),
+	m_eHourSecond(-1),
+	m_trueNextItem(0),
+	m_falseNextItem(0),
+    m_nextBranchType(PlaylistBranchType::None),
+    m_trueNextBranchType(PlaylistBranchType::Index),
+    m_falseNextBranchType(PlaylistBranchType::Index),
+    m_nextSection()
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryBranch::PlaylistEntryBranch()\n");
-
 	m_type = "branch";
 }
 
 PlaylistEntryBranch::~PlaylistEntryBranch()
 {
-	if (m_truePlaylist)
-	{
-		m_truePlaylist->Cleanup();
-		delete m_truePlaylist;
-	}
-
-	if (m_falsePlaylist)
-	{
-		m_falsePlaylist->Cleanup();
-		delete m_falsePlaylist;
-	}
 }
 
+static inline int asInt(Json::Value &v) {
+    if (v.isIntegral()) {
+        return v.asInt();
+    }
+    std::string s = v.asString();
+    return std::atoi(s.c_str());
+}
+
+static inline PlaylistEntryBase::PlaylistBranchType toBranchType(Json::Value &v) {
+    std::string s = v.asString();
+    if (s == "Index") {
+        return PlaylistEntryBase::PlaylistBranchType::Index;
+    }
+    if (s == "Offset") {
+        return PlaylistEntryBase::PlaylistBranchType::Offset;
+    }
+    if (s == "None") {
+        return PlaylistEntryBase::PlaylistBranchType::None;
+    }
+    return PlaylistEntryBase::PlaylistBranchType::Index;
+}
 /*
  *
  */
 int PlaylistEntryBranch::Init(Json::Value &config)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryBranch::Init()\n");
+    
+    
+    if (config.isMember("trueNextBranchType")) {
+        m_trueNextBranchType = toBranchType(config["trueNextBranchType"]);
+    }
+    if (config.isMember("falseNextBranchType")) {
+        m_falseNextBranchType = toBranchType(config["falseNextBranchType"]);
+    }
 
-	if (((config.isMember("truePlaylistName")) &&
-		 (!config["truePlaylistName"].asString().empty())) ||
-		(config.isMember("truePlaylist")))
-	{
-		m_truePlaylist = new Playlist(player, 1);
+    if (config.isMember("trueNextSection")) {
+		m_trueNextSection = config["trueNextSection"].asString();
+    }
 
-		if (!m_truePlaylist)
-		{
-			LogErr(VB_PLAYLIST, "Error creating 'true' playlist\n");
-			return 0;
-		}
+    if (config.isMember("trueNextItem")) {
+		m_trueNextItem = asInt(config["trueNextItem"]);
+        if (m_trueNextBranchType == PlaylistBranchType::Index) {
+            m_trueNextItem--;
+        }
+    }
 
-		if (config.isMember("truePlaylist"))
-		{
-			m_truePlaylist->Load(config["truePlaylist"]);
-		}
-		else
-		{
-			m_truePlaylistName = config["truePlaylistName"].asString();
+    if (config.isMember("falseNextSection")) {
+		m_falseNextSection = config["falseNextSection"].asString();
+    }
+
+    if (config.isMember("falseNextItem")) {
+		m_falseNextItem = asInt(config["falseNextItem"]);
+        if (m_falseNextBranchType == PlaylistBranchType::Index) {
+            m_falseNextItem--;
+        }
+    }
+
+	m_branchType = config["branchType"].asString();
+	m_comparisonMode = asInt(config["compMode"]);
+
+	if (config.isMember("compInfo")) {
+		Json::Value ci = config["compInfo"];
+
+		if (m_branchType == PE_BRANCH_TYPE_CLOCK_TIME) {
+			if (ci.isMember("startHour"))
+				m_sHour = ci["startHour"].asInt();
+
+			if (ci.isMember("startMinute"))
+				m_sMinute = ci["startMinute"].asInt();
+
+			if (ci.isMember("startSecond"))
+				m_sSecond = ci["startSecond"].asInt();
+
+			if (ci.isMember("endHour"))
+				m_eHour = ci["endHour"].asInt();
+
+			if (ci.isMember("endMinute"))
+				m_eMinute = ci["endMinute"].asInt();
+
+			if (ci.isMember("endSecond"))
+				m_eSecond = ci["endSecond"].asInt();
+
+			m_sHourSecond = (m_sMinute * 60) + m_sSecond;
+			m_eHourSecond = (m_eMinute * 60) + m_eSecond;
+
+			if (m_sHour >= 0)
+				m_sDaySecond  = (m_sHour * 3600) + (m_sMinute * 60) + m_sSecond;
+
+			if (m_eHour >= 0)
+				m_eDaySecond  = (m_eHour * 3600) + (m_eMinute * 60) + m_eSecond;
 		}
 	}
-
-	if (((config.isMember("truePlaylistName")) &&
-		 (!config["truePlaylistName"].asString().empty())) ||
-		(config.isMember("truePlaylist")))
-	{
-		m_falsePlaylist = new Playlist(player, 1);
-
-		if (!m_falsePlaylist)
-		{
-			LogErr(VB_PLAYLIST, "Error creating 'false' playlist\n");
-			return 0;
-		}
-
-		if (config.isMember("falsePlaylist"))
-		{
-			m_falsePlaylist->Load(config["falsePlaylist"]);
-		}
-		else
-		{
-			m_falsePlaylistName = config["falsePlaylistName"].asString();
-		}
-	}
-
-	m_branchType = config["branchType"].asInt();
-	m_comparisonMode = config["compMode"].asInt();
-
-	m_hour = config["compInfo"]["hour"].asInt();
-	m_minute = config["compInfo"]["minute"].asInt();
-	m_second = config["compInfo"]["second"].asInt();
-	m_loopCount = config["compInfo"]["loopCount"].asInt();
-
-	m_conditionTrue = 0;
-	m_livePlaylist = NULL;
 
 	return PlaylistEntryBase::Init(config);
 }
@@ -132,83 +161,69 @@ int PlaylistEntryBranch::StartPlaying(void)
 {
 	LogDebug(VB_PLAYLIST, "PlaylistEntryBranch::StartPlaying()\n");
 
-	if (!CanPlay())
-	{
+	if (!CanPlay()) {
 		FinishPlay();
 		return 0;
 	}
 
-	if (m_branchType == PE_BRANCH_TYPE_CLOCK_TIME)
-	{
+	if (m_branchType == PE_BRANCH_TYPE_CLOCK_TIME) {
 		time_t currTime = time(NULL);
 		struct tm now;
 
 		localtime_r(&currTime, &now);
 
-		// FIXME PLAYLIST, how do we handle passing midnight???
-		if ((m_hour <= now.tm_hour) &&
-			(m_minute <= now.tm_min) &&
-			(m_second <= now.tm_sec))
-		{
-			m_conditionTrue = 1;
-		}
-		else
-		{
-			m_conditionTrue = 0;
-		}
-LogDebug(VB_PLAYLIST, "Now: %02d:%02d:%02d, Test: %02d:%02d:%02d, Res: %d\n", now.tm_hour, now.tm_min, now.tm_sec, m_hour, m_minute, m_second, m_conditionTrue);
-	}
-	else if (m_branchType == PE_BRANCH_TYPE_PLAYLIST_TIME)
-	{
-		m_conditionTrue = 0;
-	}
-	else if (m_branchType == PE_BRANCH_TYPE_LOOP_COUNT)
-	{
-		m_conditionTrue = 0;
-	}
+		int daySecond = (now.tm_hour * 3600) + (now.tm_min * 60) + now.tm_sec;
 
-	if ((m_conditionTrue) && (m_truePlaylist))
-	{
-		if (!m_truePlaylistName.empty())
-		{
-			if (!m_truePlaylist->Load(m_truePlaylistName.c_str()))
-				return 0;
+		if ((m_sDaySecond >= 0) && (m_eDaySecond >= 0)) {
+			if ((daySecond >= m_sDaySecond) && (daySecond < m_eDaySecond))
+				SetNext(1);
+			else
+				SetNext(0);
+		} else if (m_sDaySecond >= 0) {
+			if (daySecond >= m_sDaySecond)
+				SetNext(1);
+			else
+				SetNext(0);
+		} else if (m_sDaySecond >= 0) {
+			if (daySecond < m_eDaySecond)
+				SetNext(1);
+			else
+				SetNext(0);
+        } else { // Just compare minutes & seconds
+			int hourSecond = (now.tm_min * 60) + now.tm_sec;
+
+			if ((hourSecond >= m_sHourSecond) && (hourSecond < m_eHourSecond))
+				SetNext(1);
+			else
+				SetNext(0);
 		}
 
-		if (!m_truePlaylist->Start())
-			return 0;
-	}
-	else if (m_falsePlaylist)
-	{
-		if (!m_falsePlaylistName.empty())
-		{
-			if (!m_falsePlaylist->Load(m_falsePlaylistName.c_str()))
-				return 0;
-		}
-
-		if (!m_falsePlaylist->Start())
-			return 0;
+        LogDebug(VB_PLAYLIST, "Now: %02d:%02d:%02d, Start: %02d:%02d:%02d, End: %02d:%02d:%02d, NS: %s, NI: %d\n", now.tm_hour, now.tm_min, now.tm_sec, m_sHour, m_sMinute, m_sSecond, m_eHour, m_eMinute, m_eSecond, m_nextSection.c_str(), m_nextItem);
+    } else {
+		SetNext(0);
 	}
 
-	return PlaylistEntryBase::StartPlaying();
+	PlaylistEntryBase::StartPlaying();
+
+	FinishPlay();
+
+	return 1;
 }
 
 /*
  *
  */
-int PlaylistEntryBranch::Process(void)
+void PlaylistEntryBranch::SetNext(int isTrue)
 {
-	return PlaylistEntryBase::Process();
-}
-
-/*
- *
- */
-int PlaylistEntryBranch::Stop(void)
-{
-	LogDebug(VB_PLAYLIST, "PlaylistEntryBranch::Stop()\n");
-
-	return PlaylistEntryBase::Stop();
+	if (isTrue) {
+        m_nextBranchType = m_trueNextBranchType;
+		m_nextSection = m_trueNextSection;
+		m_nextItem = m_trueNextItem;
+    } else {
+        m_nextBranchType = m_falseNextBranchType;
+		m_nextSection = m_falseNextSection;
+		m_nextItem = m_falseNextItem;
+	}
 }
 
 /*
@@ -218,13 +233,22 @@ void PlaylistEntryBranch::Dump(void)
 {
 	PlaylistEntryBase::Dump();
 
-	LogDebug(VB_PLAYLIST, "Branch Type: %d\n", m_branchType);
-	LogDebug(VB_PLAYLIST, "Comparison Mode: %d\n", m_comparisonMode);
-	LogDebug(VB_PLAYLIST, "Hour: %d\n", m_hour);
-	LogDebug(VB_PLAYLIST, "Minute: %d\n", m_minute);
-	LogDebug(VB_PLAYLIST, "Second: %d\n", m_second);
-	LogDebug(VB_PLAYLIST, "Loop Count: %d\n", m_loopCount);
-
+	LogDebug(VB_PLAYLIST, "Branch Type       : %s\n", m_branchType.c_str());
+	LogDebug(VB_PLAYLIST, "Comparison Mode   : %d\n", m_comparisonMode);
+	LogDebug(VB_PLAYLIST, "Start Hour        : %d\n", m_sHour);
+	LogDebug(VB_PLAYLIST, "Start Minute      : %d\n", m_sMinute);
+	LogDebug(VB_PLAYLIST, "Start Second      : %d\n", m_sSecond);
+	LogDebug(VB_PLAYLIST, "Start Day Second  : %d\n", m_sDaySecond);
+	LogDebug(VB_PLAYLIST, "Start Hour Second : %d\n", m_sHourSecond);
+	LogDebug(VB_PLAYLIST, "End Hour          : %d\n", m_eHour);
+	LogDebug(VB_PLAYLIST, "End Minute        : %d\n", m_eMinute);
+	LogDebug(VB_PLAYLIST, "End Second        : %d\n", m_eSecond);
+	LogDebug(VB_PLAYLIST, "End Day Second    : %d\n", m_eDaySecond);
+	LogDebug(VB_PLAYLIST, "End Hour Second   : %d\n", m_eHourSecond);
+	LogDebug(VB_PLAYLIST, "True Next Section : %s\n", m_trueNextSection.c_str());
+	LogDebug(VB_PLAYLIST, "True Next Item    : %d\n", m_trueNextItem);
+	LogDebug(VB_PLAYLIST, "False Next Section: %s\n", m_falseNextSection.c_str());
+	LogDebug(VB_PLAYLIST, "False Next Item   : %d\n", m_falseNextItem);
 }
 
 /*
@@ -236,9 +260,10 @@ Json::Value PlaylistEntryBranch::GetConfig(void)
 
 	result["branchType"] = m_branchType;
 	result["comparisonMode"] = m_comparisonMode;
-	result["hour"] = m_hour;
-	result["minute"] = m_minute;
-	result["second"] = m_second;
+	result["startHour"] = m_sHour;
+	result["startMinute"] = m_sMinute;
+	result["endHour"] = m_eHour;
+	result["endMinute"] = m_eMinute;
 
 	return result;
 }

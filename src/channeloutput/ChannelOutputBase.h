@@ -1,7 +1,7 @@
 /*
  *   ChannelOutputBase class for Falcon Player (FPP)
  *
- *   Copyright (C) 2013 the Falcon Player Developers
+ *   Copyright (C) 2013-2018 the Falcon Player Developers
  *      Initial development by:
  *      - David Pitts (dpitts)
  *      - Tony Mace (MyKroFt)
@@ -28,12 +28,10 @@
 
 #include <string>
 #include <vector>
-
-#include <pthread.h>
+#include <functional>
 
 #include <jsoncpp/json/json.h>
 
-#include "channeloutput.h"
 
 class ChannelOutputBase {
   public:
@@ -43,45 +41,26 @@ class ChannelOutputBase {
 
 	unsigned int  ChannelCount(void) { return m_channelCount; }
 	unsigned int  StartChannel(void) { return m_startChannel; }
-	int           MaxChannels(void)  { return m_maxChannels; }
 
-	virtual int   Init(Json::Value config);
-	virtual int   Init(char *configStr);
-	virtual int   Close(void);
-	virtual void  PrepData(unsigned char *channelData);
-	int           SendData(unsigned char *channelData);
+    virtual int   Init(Json::Value config);
+    virtual int   Init(char *configStr);
+    virtual int   Close(void);
+    
+    virtual void  PrepData(unsigned char *channelData) {}
+	virtual int   SendData(unsigned char *channelData) = 0;
 
-	void          OutputThread(void);
 
+    virtual void GetRequiredChannelRanges(const std::function<void(int, int)> &addRange) = 0;
   private:
-	int           Init(void);
+	int   Init(void);
 
   protected:
 	virtual void  DumpConfig(void);
-	virtual int   RawSendData(unsigned char *channelData);
-
-	int           StartOutputThread(void);
-	int           StopOutputThread(void);
-	int           SendOutputBuffer(void);
+    virtual void  ConvertToCSV(Json::Value config, char *configStr);
 
 	std::string      m_outputType;
-	unsigned int     m_maxChannels;
 	unsigned int     m_startChannel;
 	unsigned int     m_channelCount;
-
-	unsigned int     m_useOutputThread;
-	unsigned int     m_threadIsRunning;
-	unsigned int     m_runThread;
-	unsigned int     m_dataWaiting;
-
-	pthread_t        m_threadID;
-	pthread_mutex_t  m_bufLock;
-	pthread_mutex_t  m_sendLock;
-	pthread_cond_t   m_sendCond;
-
-	unsigned char   *m_inBuf;
-	unsigned char   *m_outBuf;
-
 };
 
 #endif /* #ifndef _CHANNELOUTPUTBASE_H */

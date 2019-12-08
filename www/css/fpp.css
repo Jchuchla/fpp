@@ -2,8 +2,8 @@
 {
 	font-size: 14px;
 	text-align: center;
-	background: rgb(240, 240, 240);
-	width: 900px;
+	#background: rgb(240, 240, 240);
+	width: 1200px;
 	margin-left: auto;
 	margin-right: auto;
 }
@@ -58,6 +58,8 @@
 
 .disableButtons
 {
+    cursor: not-allowed;
+    pointer-events: none;
 	background-color: #eeeeee;
 	background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0%, #eeeeee), color-stop(100%, #cccccc));
 	background-image: -webkit-linear-gradient(top, #eeeeee, #cccccc);
@@ -77,6 +79,7 @@
 	text-align: center;
 	text-shadow: 0 1px 0 #eee;
 	width: 90px;
+	height: 20px;
 }
 
 .disableButtons:active
@@ -96,7 +99,7 @@
 
 #bodyWrapper
 {
-	width: 900px;
+	width: 1200px;
 	margin-left: auto;
 	margin-right: auto;
 	background: rgb(240, 240,240);
@@ -139,14 +142,24 @@
 	width: 100%;
 }
 
+.center
+{
+	text-align: center;
+}
+
 .ui-front
 {
 	z-index: 1001;
 }
+.ui-dialog
+{
+ 	z-index: 10000;
+}	
+
 
 .settings
 {
-	width: 800px;
+	width: 1100px;
 	margin-left: auto;
 	margin-right: auto;
 }
@@ -178,16 +191,13 @@
 	width: 5%;
 }
 .eventTblName{
-	width: 30%;
+	width: 20%;
 }
-.eventTblEffect{
-	width: 30%;
+.eventTblCommand{
+	width: 20%;
 }
-.eventTblStartCh{
-	width: 5%;
-}
-.eventTblScript{
-	width: 30%;
+.eventTblArgs{
+	width: 55%;
 }
 
 .aboutLeft{
@@ -202,6 +212,11 @@
 	float: left;
 	width: 47%;
 }
+.aboutAll{
+    float: left;
+    width: 95%;
+}
+
 
 html
 {
@@ -298,7 +313,7 @@ fieldset
 
 .headerCenter
 {
-	width:470px;
+	width:770px;
 	text-align:center;
 	float:left;
 }
@@ -306,37 +321,32 @@ fieldset
 .siteName{font-size: 200%; padding-top: 13px; }
 
 
-.colPlaylistNumberDrag{
+.colPlaylistNumberDrag {
 	background-image: url(../images/vertdrag.png);
 	background-repeat:no-repeat;
 	background-size:7px 14px;
 	background-position:0 2px;
 	padding-left:20px;
 }
-.colPlaylistNumber{
+.colPlaylistNumber {
 	text-align:right;
 	padding-right:0px;
-	width: 5%;
+//	width: 5%;
 }
-.colPlaylistType{
+.colPlaylistType {
 	text-align:left;
 	padding-left:5px;
-	width: 6%;
+//	width: 10%;
 }
-.colPlaylistData1{
+.colPlaylistData1 {
 	text-align:left;
 	padding-left:5px;
-	width: 42%;
+//	width: 40%;
 }
-.colPlaylistData2{
+.colPlaylistData2 {
 	text-align:left;
 	padding-left:5px;
-	width: 41%;
-}
-.colPlaylistFlags{
-	text-align:left;
-	padding-left:5px;
-	width: 6%;
+//	width: 40%;
 }
 
 .volumeButton {
@@ -406,6 +416,10 @@ fieldset
 	overflow:auto
 }
 
+#statusPlaylistContents table {
+	border-collapse:collapse;
+} 
+
 #eventListContents, #effectListContents{
 	height:120px;
 	min-height:120px;
@@ -415,7 +429,6 @@ fieldset
 
 #statusPlaylist, #eventList, #effectList, #effectLibrary, #runningEffects{
 	border:thin solid;	
-	font-size:12px;
 	margin-top: 5px;
 	-moz-border-radius: 5px;
 	border-radius: 5px;
@@ -427,19 +440,25 @@ fieldset
 }
 
 .playerStatusHeader{
-	width: 40%;
+    width: 1%;
+    white-space: nowrap;
+    padding-right: 15px;
 }
 .playerStatusLeft{
-	width: 50%;
+	width: 70%;
 	float: left;
 }
 .playerStatusRight{
-	width: 50%;
+	width: 30%;
 	float: left;
 }
 
-#tblStatusPlaylist{
+#tblStatusPlaylist {
 	 width:100%;
+}
+
+#tblStatusPlaylist tbody tr th{
+	background: #aaaaaa;
 }
 
 #tblStatusPlaylistEntries{
@@ -447,6 +466,18 @@ fieldset
 	 border-collapse:collapse;
 }
 
+#tblCreatePlaylist {
+	 width:100%;
+	 border-collapse:collapse;
+}
+
+#tblCreatePlaylist tbody tr th{
+	background: #aaaaaa;
+}
+
+#fppSystems thead {
+	background:#CCC;
+}
 
 .playlistHeader, .eventListHeader, .effectListHeader{
 	background:#DDD;
@@ -470,10 +501,6 @@ fieldset
 .playlistSelectedEntry, .eventSelectedEntry, .effectSelectedEntry{
 	background:#CCC;
 }
-
-#statusPlaylistContents table {
-	border-collapse:collapse;
-} 
 
 .unselectable {
    -moz-user-select: -moz-none;
@@ -573,6 +600,11 @@ fieldset
 	background: #CCC;
 }
 
+.tblCreatePlaylistEntries_tbody {
+	height: auto;
+	min-height: 20px;
+}
+
 .pl_title {
 	font-size: larger;
 }
@@ -610,9 +642,13 @@ fieldset
 	height: 60px;
 }
 
-#fileManager, #channelOutputManager, .fppTabs {
-	min-width: 768px;
-	width: 860px;
+.channelOutputTable {
+	width: 100%;
+}
+
+#fileManager, #channelOutputManager, #channelTester, .fppTabs {
+	min-width: 1068px;
+	width: 1160px;
 	margin-left: auto;
 	margin-right: auto;
 }
@@ -620,12 +656,14 @@ fieldset
 	font-size: 13px;
 }
 .fileName {
-	width: 80%;
+	width: 70%;
 }
 .fileTime {
-	width: 20%;
+	width: 10%;
 }
-
+.fileExtraInfo{
+	width: 7%;
+}
 #logText {
 	overflow: auto;
 }
@@ -713,6 +751,52 @@ pre
 	font-family: Arial, Helvetica, sans-serif;
 }
 
+.pluginTable
+{
+	width: 800px;
+}
+
+.pluginTable td
+{
+	text-align: left;
+	vertical-align: top;
+}
+
+td.pluginsHeader {
+	text-align: center;
+	font-weight: bold;
+	font-size: 22px;
+	background-color: #000000;
+	color: #FFFFFF;
+}
+
+td.bgBlue {
+	background-color: #000088;
+}
+
+td.bgGreen {
+	background-color: #008800;
+}
+
+td.bgRed {
+	background-color: #880000;
+}
+
+td.bgDarkOrange {
+	background-color: #BA4A00;
+}
+
+.pendingSpan {
+	color: #00AA00;
+}
+
+.updateTable td {
+	text-align: center;
+	vertical-align: middle;
+	font-weight: bold;
+	font-size: 10px;
+}
+
 #overlay{
     position:fixed;
     top:0;
@@ -781,6 +865,46 @@ pre
 
 #fppMenu li ul li a {
 	font-weight: normal; }
+
+#hostnameColumn{
+	max-width: 50px;
+}
+
+.hostDescriptionSM{
+	font-size: 0.7em;
+}
+
+.playlistInfoText{
+	font-size: 0.8em;
+}
+
+
+.multiSyncadvancedView{
+	float: right;
+	font-weight: bold;
+}
+
+.advancedViewHeaderSpacer{
+	min-width: 20px;
+}
+
+.advancedViewHeader {
+	color: #fff;
+	background-color: #414141;
+}
+
+.advancedViewRow{
+	font-size: 0.8em;
+	color: #fff;
+	background-color: #414141;
+	text-align: center;
+	min-width: 90px;
+}
+
+.updateAvailable {
+	color: #FF0000;
+	font-weight: bold;
+}
 
 @media screen and (max-width: 950px) {
 	html {

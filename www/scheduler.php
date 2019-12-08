@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<html>
 <?php
 $a = session_id();
 
@@ -10,8 +12,6 @@ $_SESSION['session_id'] = session_id();
 error_reporting(E_ALL);
 ?>
 
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <?php
 require_once('config.php');
@@ -40,18 +40,41 @@ this.value = default_value;
 });
 </script>
 <script>
-    $(function() {
-		$('#tblSchedule').on('mousedown', 'tr', function(event,ui){
-					$('#tblSchedule tr').removeClass('selectedEntry');
-          $(this).addClass('selectedEntry');
-					var items = $('#tblSchedule tr');
-					ScheduleEntrySelected  = items.index(this);
-					
+	$(function() {
+		$('#tblScheduleBody').on('mousedown', 'tr', function(event,ui){
+			$('#tblScheduleBody tr').removeClass('selectedEntry');
+			$(this).addClass('selectedEntry');
+			var items = $('#tblScheduleBody tr');
+			ScheduleEntrySelected  = items.index(this);
 		});
 	});
 </script>
 <script>
 $(document).ready(function(){
+	$('#tblScheduleBody').sortable({
+		start: function (event, ui) {
+			start_pos = ui.item.index();
+		},
+		update: function(event, ui) {
+			SetScheduleInputNames();
+		},
+		beforeStop: function (event, ui) {
+			//undo the firefox fix.
+			// Not sure what this is, but copied from playlists.php to here
+			if (navigator.userAgent.toLowerCase().match(/firefox/) && ui.offset !== undefined) {
+				$(window).unbind('scroll.sortableplaylist');
+				ui.helper.css('margin-top', 0);
+			}
+		},
+		helper: function (e, ui) {
+			ui.children().each(function () {
+				$(this).width($(this).width());
+			});
+			return ui;
+		},
+		scroll: true
+	}).disableSelection();
+
 	$('#frmSchedule').submit(function(event) {
 			 event.preventDefault();
 			 var success =true;
@@ -104,6 +127,7 @@ tr.rowScheduleDetails td {
 	padding: 1px 5px;
 }
 #tblSchedule {
+	width: 100%;
 	border: thin;
 	border-color: #333;
 	border-collapse: collapse;
@@ -114,9 +138,6 @@ a:active {
 a:visited {
 	color: blue;
 }
-.time {
-	width: 100%;
-}
 .center {
 	text-align: center;
 }
@@ -126,7 +147,7 @@ a:visited {
 <body onload="getSchedule('TRUE');">
 <div id="bodyWrapper">
   <?php	include 'menu.inc'; ?>
-  <div style="width:800px;margin:0 auto;"> <br />
+  <div style="width:1100px;margin:0 auto;"> <br />
     <fieldset style="padding: 10px; border: 2px solid #000;">
       <legend>Schedule</legend>
       <div style="overflow: hidden; padding: 10px;">
@@ -142,11 +163,15 @@ a:visited {
           </tr>
         </table>
         <table id="tblSchedule">
+            <thead id='tblScheduleHead'>
+            </thead>
+            <tbody id='tblScheduleBody'>
+            </tbody>
         </table>
       </form>
     </fieldset>
   </div>
-</div>
   <?php	include 'common/footer.inc'; ?>
+</div>
 </body>
 </html>
